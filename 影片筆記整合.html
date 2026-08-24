@@ -1,0 +1,1117 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>_lecture — 影片筆記整合</title><style>
+:root{--bg:#fafaf7;--panel:#fffefb;--fg:#23211c;--muted:#766f63;--line:#e5e1d8;--accent:#1f6f54;--accent2:#b5651d;--active:#fff2a8;--soft:#eef6f1;--dark:#151515}
+*{box-sizing:border-box}
+html,body{height:100%;overflow:hidden}
+/* outer shell: thin header + main + thin footer. minmax(0,1fr) keeps the inner scroll chain alive */
+body{margin:0;display:grid;grid-template-rows:auto minmax(0,1fr) auto;background:var(--bg);color:var(--fg);font-family:"Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif;line-height:1.68}
+button{font:inherit}
+
+/* ---- header / footer ---- */
+/* position:relative + high z-index so the header (and its ☰ button) stays ABOVE the narrow-tier
+   drawer overlay (z:55) — otherwise the open drawer covers the hamburger and you can't close it (b) */
+.page-head{position:relative;z-index:80;display:flex;align-items:center;justify-content:space-between;gap:.6rem;padding:.3rem .55rem .3rem .9rem;background:var(--accent);color:#fff;border-bottom:1px solid #185a44}
+.page-head .ph-meta{display:flex;align-items:baseline;gap:.3rem;min-width:0;white-space:nowrap;overflow:hidden}
+.page-head .ph-title{font-weight:800;font-size:.95rem;overflow:hidden;text-overflow:ellipsis}
+.page-head .ph-date{opacity:.85;font-size:.82rem}
+.ph-tools{display:flex;align-items:center;gap:.3rem;flex:none}
+.ph-btn{border:1px solid rgba(255,255,255,.45);background:rgba(255,255,255,.14);color:#fff;border-radius:7px;padding:.14rem .5rem;font-size:.92rem;font-weight:800;line-height:1.25;cursor:pointer}
+.ph-btn:hover{background:rgba(255,255,255,.3)}
+.ph-btn.active{background:#fff;color:var(--accent);border-color:#fff}
+/* in-viewer search */
+.ph-search{position:relative;flex:1 1 auto;min-width:90px;max-width:460px;margin:0 .5rem}
+.ph-search-input{width:100%;box-sizing:border-box;border:1px solid rgba(255,255,255,.5);background:rgba(255,255,255,.16);color:#fff;border-radius:8px;padding:.2rem .6rem;font-size:.86rem;line-height:1.3;outline:none}
+.ph-search-input::placeholder{color:rgba(255,255,255,.82)}
+.ph-search-input:focus{background:#fff;color:var(--fg);border-color:#fff}
+.search-results{display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:120;max-height:min(62vh,520px);overflow-y:auto;background:var(--panel);color:var(--fg);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.22)}
+.search-results.open{display:block}
+.search-results .sr-count{position:sticky;top:0;background:#f0ede4;color:var(--muted);font-size:.74rem;font-weight:800;padding:.28rem .7rem;border-bottom:1px solid var(--line)}
+.search-results .sr-empty{padding:.7rem;color:var(--muted);font-size:.85rem}
+.sr-item{display:flex;align-items:baseline;gap:.5rem;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:none;color:var(--fg);padding:.42rem .7rem;cursor:pointer;font:inherit;line-height:1.45}
+.sr-item:hover,.sr-item:focus{background:var(--soft)}
+.sr-seg{flex:none;color:var(--accent);font-weight:800;font-size:.74rem;white-space:nowrap}
+.sr-text{flex:1 1 auto;font-size:.84rem;overflow:hidden}
+.sr-text mark{background:var(--active);color:inherit;padding:0 .08em;border-radius:3px}
+.sr-ts{flex:none;color:var(--accent2);font-size:.76rem;font-variant-numeric:tabular-nums;white-space:nowrap}
+@media(max-width:720px){.ph-search{max-width:none}.page-head{flex-wrap:wrap}}
+.page-foot{padding:.24rem .9rem;background:#f0ede4;color:var(--muted);font-size:.74rem;text-align:right;border-top:1px solid var(--line)}
+
+/* ---- main 3-column app ---- */
+.app-v3{min-height:0;min-width:0;display:grid;grid-template-columns:var(--video-col,minmax(420px,48vw)) 8px minmax(420px,1fr) var(--drawer-col,minmax(250px,330px));overflow:hidden;background:var(--bg)}
+body.drawer-closed .app-v3{grid-template-columns:var(--video-col,minmax(420px,48vw)) 8px minmax(520px,1fr) 0}
+.video-pane,.note-workspace,.segment-drawer{height:100%;min-height:0;min-width:0}
+.video-pane{overflow:hidden;background:var(--dark);color:#eee;padding:.7rem;display:flex;flex-direction:column;gap:.5rem;border-right:1px solid #2b2b2b}
+.col-resizer{height:100%;min-height:0;background:#ddd7ca;cursor:col-resize;touch-action:none}
+.col-resizer:hover,.col-resizer.dragging{background:var(--accent)}
+video{width:100%;min-height:0;flex:1 1 auto;background:#000;border-radius:8px;object-fit:contain}
+.controls,.status-actions{display:flex;gap:.45rem;flex-wrap:wrap;align-items:center;flex:none}
+.now{font-size:.9rem;color:#e9e9e9;line-height:1.45;max-height:3.6em;overflow:hidden;flex:none}
+.control-button,.modebar button{border:1px solid #d8d1c3;background:#fff;color:var(--fg);border-radius:999px;padding:.28rem .85rem;cursor:pointer}
+/* mode switch: small, compact (was too long/large) */
+.modebar{display:flex;gap:.3rem;flex:none}
+.modebar button{padding:.16rem .5rem;font-size:.72rem;white-space:nowrap}
+.video-pane .control-button{background:#222;color:#eee;border-color:#555;font-size:.76rem;padding:.2rem .6rem}
+.video-pane .control-button.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.control-button:hover,.modebar button:hover{background:var(--soft);color:var(--fg)}
+.control-button.active,.modebar button.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+/* ---- floating video window ---- */
+.float-bar{display:none;align-items:center;justify-content:space-between;gap:.4rem;flex:none}
+.float-bar .drag-handle{cursor:move;font-size:.8rem;color:#cfcfcf;user-select:none;touch-action:none;padding:.1rem .5rem;border-radius:6px;flex:1;text-align:center}
+.float-bar .drag-handle:hover{background:#2b2b2b}
+.float-min{flex:none;border:1px solid #555;background:#222;color:#eee;border-radius:6px;width:1.7rem;height:1.6rem;font-size:1rem;font-weight:800;line-height:1;cursor:pointer}
+.float-min:hover{background:#333}
+/* minimized: collapse the floating window to just its title bar */
+body.video-floating.video-min .video-pane{height:auto!important;min-height:0}
+body.video-floating.video-min #player,body.video-floating.video-min .controls,body.video-floating.video-min .now,body.video-floating.video-min .rz{display:none}
+/* four-corner resize handles (shown only when floating) */
+.rz{display:none}
+body.video-floating .float-bar{display:flex}
+body.video-floating #video-float-toggle{background:var(--accent);color:#fff;border-color:var(--accent)}
+/* floating: the video-pane is position:fixed (out of grid flow) AND col-resizer is display:none,
+   so ONLY note-workspace (+ drawer when open) remain as in-flow grid items. The template MUST
+   match that count — a 4-track "0 0 1fr drawer" makes the notes land in a 0px track and collapse
+   (was the root cause of the mid-tier blank / squished panes). */
+body.video-floating .app-v3{grid-template-columns:minmax(0,1fr) var(--drawer-col,minmax(250px,330px))}
+body.video-floating.drawer-closed .app-v3{grid-template-columns:minmax(0,1fr)}
+body.video-floating .col-resizer{display:none}
+body.video-floating .video-pane{position:fixed;right:16px;bottom:16px;width:var(--float-w,380px);height:var(--float-h,290px);z-index:60;border:1px solid #444;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.45);padding:.45rem}
+body.video-floating .video-pane .now{display:none}
+body.video-floating .rz{display:block;position:absolute;width:18px;height:18px;z-index:5;touch-action:none}
+body.video-floating .rz.nw{left:-3px;top:-3px;cursor:nw-resize}
+body.video-floating .rz.ne{right:-3px;top:-3px;cursor:ne-resize}
+body.video-floating .rz.sw{left:-3px;bottom:-3px;cursor:sw-resize}
+body.video-floating .rz.se{right:-3px;bottom:-3px;cursor:se-resize;background:linear-gradient(135deg,transparent 45%,#9a9a9a 45%,#9a9a9a 55%,transparent 55%,transparent 70%,#9a9a9a 70%,#9a9a9a 80%,transparent 80%)}
+
+/* ---- note workspace ---- */
+.note-workspace{display:flex;flex-direction:column;background:var(--panel);border-right:1px solid var(--line);overflow:hidden}
+.note-toolbar{flex:none;display:flex;align-items:center;gap:.55rem;padding:.6rem .9rem;border-bottom:1px solid var(--line);background:#fbfaf5}
+.note-toolbar .title{font-weight:800;color:var(--accent);margin-right:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#home-btn{flex:none}
+.split-notes{min-height:0;flex:1;display:grid;grid-template-rows:minmax(0,var(--summary-row,1fr)) 7px minmax(0,1fr);overflow:hidden}
+.split-resizer{background:#ddd7ca;cursor:row-resize;touch-action:none}
+.split-resizer:hover,.split-resizer.dragging{background:var(--accent)}
+.note-half{min-height:0;overflow-y:auto;overflow-x:hidden;padding:0 1.35rem 1rem}
+.note-half.summary-pane{background:#fffefb}
+.note-half.replay-pane{background:#fbfaf7}
+body.mode-summary .split-notes{grid-template-rows:minmax(0,1fr)}
+body.mode-summary .replay-pane,body.mode-summary .split-resizer{display:none}
+body.mode-replay .split-notes{grid-template-rows:minmax(0,1fr)}
+body.mode-replay .summary-pane,body.mode-replay .split-resizer{display:none}
+
+/* sticky label sits FLUSH at the pane top (note-half has no top padding) — full-bleed opaque bar,
+   NO negative top margin (the old -1rem hack left a 16px strip above the label that scrolling H1s
+   peeked through = the 穿透 bug). Content scrolls cleanly underneath. */
+.pane-label{position:sticky;top:0;z-index:6;background:inherit;margin:0 -1.35rem .4rem;padding:.7rem 1.35rem .4rem;color:var(--muted);font-size:.8rem;letter-spacing:.08em;text-transform:uppercase;font-weight:800}
+.note-panel{display:none;max-width:860px;margin:0 auto}
+.note-panel.active{display:block}
+.note-panel h1{font-size:1.35rem;border-bottom:2px solid var(--accent);padding-bottom:.32rem}
+.note-panel h2{font-size:1.13rem;color:var(--accent);margin-top:1.35rem}
+.note-panel h3{font-size:1rem;color:var(--accent2)}
+.note-panel table{border-collapse:collapse;width:100%;margin:.75rem 0;font-size:.9rem}
+.note-panel th,.note-panel td{border:1px solid var(--line);padding:.35rem .5rem;text-align:left;vertical-align:top}
+.note-panel th{background:#f0ede4}
+.note-panel blockquote{border-left:4px solid var(--accent);background:#f3f7f4;margin:.75rem 0;padding:.5rem .85rem;border-radius:0 6px 6px 0}
+.note-panel mark{background:var(--active);padding:0 .12em;border-radius:3px}
+.note-panel code{background:#efece3;padding:.1em .35em;border-radius:4px;font-size:.86em}
+/* images never overflow the note column */
+.note-panel img.fig{max-width:100%;height:auto;display:block;margin:.6rem auto;border-radius:6px}
+
+a.ts{display:inline-block;cursor:pointer;color:var(--accent);background:#eaf3ef;border:1px solid #cfe3da;border-radius:999px;padding:0 .42em;margin:0 .18em;font-size:.8em;text-decoration:none;white-space:nowrap}
+a.ts:hover{background:var(--accent);color:#fff}
+[data-sync-block]{border-radius:7px;padding:.08rem .18rem;transition:background .12s,box-shadow .12s}
+[data-sync-block].is-active{background:var(--active);box-shadow:0 0 0 2px rgba(181,101,29,.12)}
+[data-time-source="inherited"]{text-decoration:underline dotted rgba(31,111,84,.28);text-underline-offset:.18em}
+/* approx timestamp: still jumpable, but flagged as an estimate — dashed pill (the pill-shaped
+   analogue of the inherited dotted-underline cue) + muted fill so it reads as "approximate" */
+a.ts[data-time-source="approx"]{border-style:dashed;background:#f2ede2;color:#7c7259}
+a.ts[data-time-source="approx"]:hover{background:var(--accent);color:#fff;border-style:dashed}
+
+/* ---- segment drawer ---- */
+.segment-drawer{overflow-y:auto;overflow-x:hidden;background:#f6f3eb;padding:.85rem;border-left:1px solid var(--line)}
+body.drawer-closed .segment-drawer{display:none}
+.drawer-head{display:flex;align-items:center;gap:.5rem;margin-bottom:.65rem}
+.drawer-head strong{font-size:1.05rem;color:var(--accent)}
+.segment-group{position:sticky;top:0;background:#f6f3eb;z-index:4;margin:1rem 0 .4rem;padding:.45rem 0 .25rem;color:#111;font-size:1.2rem;font-weight:900;letter-spacing:.08em;border-bottom:2px solid var(--accent)}
+.segment-card{display:block;width:100%;text-align:left;border:1px solid transparent;background:transparent;border-left:4px solid transparent;border-radius:10px;padding:.55rem .65rem;margin:.22rem 0;cursor:pointer}
+.segment-card:hover{background:var(--soft)}
+.segment-card.is-active{background:#e8f3ed;border-color:#cfe3da;border-left-color:var(--accent);box-shadow:0 0 0 1px rgba(31,111,84,.08)}
+.segment-number{display:block;color:var(--accent);font-weight:900;font-size:.78rem;letter-spacing:.08em;text-transform:uppercase}
+.segment-title{display:block;font-weight:800;font-size:.96rem;line-height:1.35;margin:.1rem 0}
+.segment-meta{display:block;color:var(--muted);font-size:.78rem}
+.empty-panel{display:none;max-width:760px;margin:2rem auto;padding:1rem;border:1px dashed var(--line);border-radius:10px;color:var(--muted);background:#fff}
+.empty-panel.active{display:block}
+
+/* ---- home / landing panel ---- */
+.home-panel{display:none;max-width:960px;margin:0 auto}
+.home-course{font-size:1.5rem;border-bottom:2px solid var(--accent);padding-bottom:.3rem;margin:.2rem 0 0}
+.home-sub{color:var(--muted);font-size:.86rem;margin:.35rem 0 1rem}
+.type-badge{display:inline-block;color:#fff;font-size:.72rem;font-weight:700;padding:.08em .6em;border-radius:999px;margin-right:.5rem;vertical-align:middle}
+.page-head .type-badge{margin-left:.5rem;margin-right:0;font-size:.68rem}
+.home-group{font-weight:900;color:#111;font-size:1.12rem;margin:1.1rem 0 .5rem;border-bottom:2px solid var(--accent);padding-bottom:.2rem}
+.home-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:.7rem}
+.home-card{text-align:left;border:1px solid var(--line);border-radius:10px;padding:.7rem .8rem;background:#fff;cursor:pointer;display:flex;flex-direction:column;gap:.32rem}
+.home-card:hover{background:var(--soft);border-color:#cfe3da}
+.home-card-head{display:flex;justify-content:space-between;align-items:center;gap:.5rem}
+.home-num{color:var(--accent);font-weight:900;font-size:.76rem;letter-spacing:.06em;text-transform:uppercase}
+.home-dur{color:var(--muted);font-size:.78rem;white-space:nowrap}
+.home-title{font-weight:800;font-size:1rem;line-height:1.3}
+.home-gist{color:var(--muted);font-size:.84rem;line-height:1.42}
+/* home-view: PURE landing — only the home panel; hide video / drawer / mode switch / toolbar
+   (#2: nothing else is meaningful on the landing page; also fixes the mid-tier blank where the
+   floating video + empty panes left no content) */
+body.home-view .summary-pane .home-panel{display:block}
+body.home-view .summary-pane .note-panel:not(.home-panel){display:none}
+body.home-view #summary-empty{display:none}
+body.home-view .replay-pane,body.home-view .split-resizer{display:none}
+body.home-view .split-notes{grid-template-rows:minmax(0,1fr)}
+body.home-view #home-btn,body.home-view #drawer-toggle{display:none}
+body.home-view .app-v3{grid-template-columns:minmax(0,1fr)!important}
+body.home-view .video-pane,body.home-view .col-resizer,body.home-view .segment-drawer,body.home-view .note-toolbar{display:none}
+body.home-view .home-grid{grid-template-columns:1fr}        /* single column = easier to read (#2) */
+body.home-view .pane-label{display:none}                    /* no stray "SUMMARY/總整理" label on pure home */
+/* #14: single-segment lecture → no home page at all, hide the 首頁 button permanently */
+body.no-home #home-btn{display:none}
+
+/* ============================================================
+   Responsive — THREE tiers (replaces the old single <=1180 rule)
+   wide  (>1180)   : 3 columns, embedded video box
+   mid   (721-1180): Segments visible, video floats (JS sets video-floating)
+   narrow(<=720)   : Segments collapsed (overlay drawer), video floats, notes full-width & scrollable
+   JS sets drawer/float state per breakpoint; CSS only styles each state.
+   ============================================================ */
+@media(max-width:720px){
+  .app-v3{display:block;height:100%;overflow:hidden}
+  .col-resizer{display:none}
+  .note-workspace{height:100%;border-right:0}
+  /* KEEP the split-resizer visible at narrow so 同顯's top/bottom divider stays draggable at every
+     width. (Hiding it removed it from the grid → replay-pane fell into the 7px track and collapsed.)
+     Make it a touch-friendlier 12px row here. */
+  .split-notes{grid-template-rows:minmax(0,var(--summary-row,1fr)) 12px minmax(0,1fr)}
+  .split-resizer{height:12px}
+  /* drawer becomes a right-side overlay sheet below the header (so the ☰ stays reachable to close it) */
+  .segment-drawer{position:fixed;top:38px;right:0;width:min(82vw,300px);height:calc(100% - 38px);z-index:55;box-shadow:-6px 0 18px rgba(0,0,0,.25)}
+  body.drawer-closed .segment-drawer{display:none}
+  /* video floats on phones (JS enforces); default small but still honor a user resize (--float-w/h)
+     so the four-corner handles work on narrow too (#1) */
+  body.video-floating .video-pane{right:10px;bottom:10px;width:var(--float-w,min(72vw,280px));height:var(--float-h,min(42vh,200px))}
+  .page-foot{display:none}
+}
+</style></head>
+<body class="mode-split home-view">
+<header class="page-head">
+  <div class="ph-meta"><span class="ph-title">_lecture</span><span class="ph-date"></span><span class="type-badge" style="background:#1f6f54">procedure</span></div>
+  <div class="ph-search">
+    <input class="ph-search-input" id="search-input" type="search" placeholder="🔍 搜尋筆記＋投影片（按 / 快速聚焦）" autocomplete="off" spellcheck="false" />
+    <div class="search-results" id="search-results"></div>
+  </div>
+  <div class="ph-tools">
+    <button class="ph-btn" id="copy-link" type="button" title="複製目前播放位置的連結（?f=影片&t=秒）">🔗</button>
+    <button class="ph-btn" id="font-dec" type="button" title="縮小字體（老花友善）">A−</button>
+    <button class="ph-btn" id="font-inc" type="button" title="放大字體">A＋</button>
+    <button class="ph-btn" id="home-btn" data-go-home type="button" title="回首頁">🏠</button>
+    <button class="ph-btn" id="drawer-toggle" data-toggle-drawer type="button" aria-label="切換 Segments 側欄" title="開合 Segments 側欄">☰</button>
+  </div>
+</header>
+<div class="app-v3" data-layout="segment-drawer-right">
+  <section class="video-pane" id="video-pane">
+    <div class="float-bar" id="float-bar">
+      <span class="drag-handle" id="drag-handle" title="拖曳移動影片框">⠿ 拖曳移動</span>
+      <button class="float-min" id="video-min-toggle" data-toggle-min type="button" title="縮小／還原影片框">－</button>
+    </div>
+    <video id="player" controls preload="metadata"></video>
+    <div class="controls">
+      <button id="toggle-scroll" class="control-button active" type="button">自動捲動：開</button>
+      <button id="video-float-toggle" class="control-button" data-toggle-float type="button" title="影片框：長條 ↔ 浮動">浮動</button>
+    </div>
+    <div class="now" id="now">選一個 segment 或時間碼開始播放。</div>
+    <span class="rz nw" data-corner="nw" title="拖曳縮放"></span><span class="rz ne" data-corner="ne" title="拖曳縮放"></span>
+    <span class="rz sw" data-corner="sw" title="拖曳縮放"></span><span class="rz se" data-corner="se" title="拖曳縮放"></span>
+  </section>
+  <div class="col-resizer" id="col-resizer" aria-label="調整影片寬度"></div>
+  <main class="note-workspace">
+    <div class="note-toolbar">
+      <div class="title" id="segment-title">Segment</div>
+      <div class="modebar">
+        <button type="button" data-mode="split" class="active">同顯</button>
+        <button type="button" data-mode="summary">總整理</button>
+        <button type="button" data-mode="replay">逐字稿</button>
+      </div>
+    </div>
+    <div class="split-notes">
+      <section class="note-half summary-pane" id="summary-pane">
+        <div class="pane-label">SUMMARY / 總整理</div>
+        <div id="summary-empty" class="empty-panel">這個 segment 沒有總整理區塊。</div>
+        <section id="home" class="note-panel home-panel"><h1 class="home-course">_lecture</h1><div class="home-sub"><span class="type-badge" style="background:#1f6f54">procedure</span> · 共 19 段</div><div class="home-grid"><div class="home-group">總覽</div><button class="home-card" type="button" data-segment-id="s19" data-file="combined.mp4" data-t="0.0"><span class="home-card-head"><span class="home-num">seg01</span><span class="home-dur">22:43</span></span><span class="home-title">全場總整理</span><span class="home-gist">▶ V1 00:00 掃描前先固定一個地標（如PSIS），迷航時隨時可回到起點重新定位。</span></button><button class="home-card" type="button" data-segment-id="s1" data-file="combined.mp4" data-t="0.0"><span class="home-card-head"><span class="home-num">seg02</span><span class="home-dur">01:15</span></span><span class="home-title">PSIS地標與臀大中小肌</span><span class="home-gist"></span></button><button class="home-card" type="button" data-segment-id="s2" data-file="combined.mp4" data-t="60.0"><span class="home-card-head"><span class="home-num">seg03</span><span class="home-dur">01:15</span></span><span class="home-title">臀上動脈與神經</span><span class="home-gist"></span></button><button class="home-card" type="button" data-segment-id="s3" data-file="combined.mp4" data-t="90.0"><span class="home-card-head"><span class="home-num">seg04</span><span class="home-dur">02:45</span></span><span class="home-title">上臀皮神經（題外話）</span><span class="home-gist"></span></button><button class="home-card" type="button" data-segment-id="s4" data-file="combined.mp4" data-t="210.0"><span class="home-card-head"><span class="home-num">seg05</span><span class="home-dur">01:15</span></span><span class="home-title">坐骨大切跡</span><span class="home-gist"></span></button><button class="home-card" type="button" data-segment-id="s5" data-file="combined.mp4" data-t="240.0"><span class="home-card-head"><span class="home-num">seg06</span><span class="home-dur">02:15</span></span><span class="home-title">梨狀肌與肌腱</span><span class="home-gist"></span></button><button class="home-card" type="button" data-segment-id="s6" data-file="combined.mp4" data-t="330.0"><span class="home-card-head"><span class="home-num">seg07</span><span class="home-dur">02:45</span></span><span class="home-title">梨狀肌起始點注射</span><span class="home-gist"></span></button><button class="home-card" type="button" data-segment-id="s7" data-file="combined.mp4" data-t="450.0"><span class="home-card-head"><span class="home-num">seg08</span><span class="home-dur">01:45</span></span><span class="home-title">臀下動脈與陰部神經血管束</span><span class="home-gist"></span></button><button class="home-card" type="button" data-segment-id="s8" data-file="combined.mp4" data-t="510.0"><span class="home-card-head"><span class="home-num">seg09</span><span class="home-dur">02:15</span></span><span class="home-title">坐骨神經最佳定位法</span><span class="home-gist"></span></button><button class="home-card" type="button" data-segment-id="s9" data-file="combined.mp4" data-t="600.0"><span class="home-card-head"><span class="home-num">seg10</span><span class="home-dur">01:15</span></span><span class="home-title">閉孔內肌肌腱（Waterfall徵象）</span><span class="home-gist"></span></button><button class="home-card" type="button" data-segment-id="s10" data-file="combined.mp4" data-t="630.0"><span class="home-card-head"><span class="home-num">seg11</span><span class="home-dur">02:15</span></span><span class="home-title">股方肌與坐骨股骨間隙</span><span class="home-gist"></span></button><button class="home-card" type="button" data-segment-id="s11" data-file="combined.mp4" data-t="840.0"><span class="home-card-head"><span class="home-num">seg12</span><span class="home-dur">02:45</span></span><span class="home-title">髖臼後側盂唇評估</span><span class="home-gist">解法 ▶ V1 14:00：外側探頭往頭端（cephalad）移動，當大轉子骨頭影像消失，即可找到進針空間；接著測量進針深度，探頭頭外側再往頭端轉，即可打到盂唇位置 ▶ V1 14…</span></button><button class="home-card" type="button" data-segment-id="s12" data-file="combined.mp4" data-t="870.0"><span class="home-card-head"><span class="home-num">seg13</span><span class="home-dur">00:45</span></span><span class="home-title">銜接：髖關節前方注射（第一段影片結束）</span><span class="home-gist"></span></button><button class="home-card" type="button" data-segment-id="s13" data-file="combined.mp4" data-t="870.0"><span class="home-card-head"><span class="home-num">seg14</span><span class="home-dur">01:45</span></span><span class="home-title">薦棘韌帶與薦結節韌帶</span><span class="home-gist"></span></button><button class="home-card" type="button" data-segment-id="s14" data-file="combined.mp4" data-t="930.0"><span class="home-card-head"><span class="home-num">seg15</span><span class="home-dur">02:45</span></span><span class="home-title">陰部神經與陰部內動脈（Alcock管入路）</span><span class="home-gist"></span></button><button class="home-card" type="button" data-segment-id="s15" data-file="combined.mp4" data-t="1050.0"><span class="home-card-head"><span class="home-num">seg16</span><span class="home-dur">01:45</span></span><span class="home-title">尾骨肌</span><span class="home-gist"></span></button><button class="home-card" type="button" data-segment-id="s16" data-file="combined.mp4" data-t="1110.0"><span class="home-card-head"><span class="home-num">seg17</span><span class="home-dur">01:45</span></span><span class="home-title">提肛肌</span><span class="home-gist"></span></button><button class="home-card" type="button" data-segment-id="s17" data-file="combined.mp4" data-t="1221.0"><span class="home-card-head"><span class="home-num">seg18</span><span class="home-dur">02:45</span></span><span class="home-title">陰部神經周邊分支個別阻斷</span><span class="home-gist">背側支（Dorsal Branch） ▶ V1 20:21：較淺層，男性稱陰莖背神經（Dorsal Nerve of Penis），女性則為對應的陰蒂背神經。若病人症狀僅侷限在生殖…</span></button><button class="home-card" type="button" data-segment-id="s18" data-file="combined.mp4" data-t="1290.0"><span class="home-card-head"><span class="home-num">seg19</span><span class="home-dur">03:15</span></span><span class="home-title">PFCN與坐骨神經、陰部神經背側支的鑑別</span><span class="home-gist"></span></button></div></section>
+        <section id="s19-l3" class="note-panel summary-section" data-section-kind="summary_note" data-segment-id="s19"><h1 id="全場總整理">全場總整理</h1>
+<p>超音波導引臀部/髖後側區域與陰部神經解剖掃描教學，共24分鐘（三段錄影接續）：從PSIS地標依序掃到臀肌三層、臀上動靜脈神經、梨狀肌與其起始點、坐骨神經、閉孔內肌/下孖肌/股方肌、髖臼後側盂唇，接著轉入薦棘/薦結節韌帶、陰部神經與Alcock管入路、尾骨肌、提肛肌、陰部神經周邊分支個別阻斷，最後以PFCN與坐骨神經的鑑別收尾。</p>
+<h2 id="臨床要點clinical-pearls">臨床要點（Clinical Pearls）</h2>
+<ul>
+<li data-sync-block="s19-l3-b0001" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="0" data-end="" data-time-source="precise"><strong><a class="ts" data-file="combined.mp4" data-t="0">▶ V1 00:00</a></strong> 掃描前先固定一個地標（如PSIS），迷航時隨時可回到起點重新定位。</li>
+<li data-sync-block="s19-l3-b0002" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="577" data-end="" data-time-source="precise"><strong><a class="ts" data-file="combined.mp4" data-t="577">▶ V1 09:37</a></strong> 尋找坐骨神經最快最準的方法：先找<strong>坐骨棘</strong>，其上方即為<strong>上孖肌</strong>，再更淺層就是坐骨神經——不論解剖變異都適用。</li>
+<li data-sync-block="s19-l3-b0003" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="344" data-end="" data-time-source="precise"><strong><a class="ts" data-file="combined.mp4" data-t="344">▶ V1 05:44</a></strong> 病人主訴疼痛偏內側時，注射目標應是<strong>梨狀肌起始點（薦骨前緣）</strong>，而非肌腹或大轉子端的肌腱附著處。</li>
+<li data-sync-block="s19-l3-b0004" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="740" data-end="" data-time-source="precise"><strong><a class="ts" data-file="combined.mp4" data-t="740">▶ V1 12:20</a></strong> 下孖肌區域疼痛但無麻刺感時，應懷疑髖臼後側盂唇病灶，而非坐骨神經問題。</li>
+<li data-sync-block="s19-l3-b0005" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="899" data-end="" data-time-source="precise"><strong><a class="ts" data-file="combined.mp4" data-t="899">▶ V1 14:59</a></strong> 薦棘/薦結節韌帶記憶口訣：坐骨棘＋薦骨都是「S」→ 薦棘韌帶（SS）；薦骨到坐骨結節 → 薦結節韌帶（ST）。</li>
+<li data-sync-block="s19-l3-b0006" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="1100" data-end="" data-time-source="precise"><strong><a class="ts" data-file="combined.mp4" data-t="1100">▶ V1 18:20</a></strong> 尾骨肌極薄、深部即為腸道，非熟練操作者不應嘗試在此注射。</li>
+<li data-sync-block="s19-l3-b0007" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="1207" data-end="" data-time-source="precise"><strong><a class="ts" data-file="combined.mp4" data-t="1207">▶ V1 20:07</a></strong> 陰部神經三分支（背側/下直腸/會陰）依症狀確切分布位置個別阻斷，而非一律灌注主幹——這是「打得漂亮但病人反應不好」的常見原因。</li>
+<li data-sync-block="s19-l3-b0008" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="1318" data-end="" data-time-source="precise"><strong><a class="ts" data-file="combined.mp4" data-t="1318">▶ V1 21:58</a></strong> 以坐骨棘尖端夾角點鑑別PFCN（角外側）與陰部神經背側支（角內側）。</li>
+</ul>
+<h2 id="分段導覽">分段導覽</h2>
+<ul>
+<li data-sync-block="s19-l3-b0009" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="0" data-end="" data-time-source="precise"><strong>PSIS地標與臀大中小肌</strong> <a class="ts" data-file="combined.mp4" data-t="0">▶ V1 00:00</a>：以PSIS為起點，依序辨識臀大、中、小肌三層。</li>
+<li data-sync-block="s19-l3-b0010" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="63" data-end="" data-time-source="precise"><strong>臀上動脈與神經</strong> <a class="ts" data-file="combined.mp4" data-t="63">▶ V1 01:03</a>：都卜勒定位臀上動脈，其淺層即為臀上神經；示範水擴術+激痛點注射技巧。</li>
+<li data-sync-block="s19-l3-b0011" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="118" data-end="" data-time-source="precise"><strong>上臀皮神經（題外話）</strong> <a class="ts" data-file="combined.mp4" data-t="118">▶ V1 01:58</a>：T12–L2/L3斜走神經，需配合探頭旋轉才找得到，屬另一議題。</li>
+<li data-sync-block="s19-l3-b0012" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="217" data-end="" data-time-source="precise"><strong>坐骨大切跡</strong> <a class="ts" data-file="combined.mp4" data-t="217">▶ V1 03:37</a>：作為找梨狀肌的前置骨性地標。</li>
+<li data-sync-block="s19-l3-b0013" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="246" data-end="" data-time-source="precise"><strong>梨狀肌與肌腱</strong> <a class="ts" data-file="combined.mp4" data-t="246">▶ V1 04:06</a>：從肌腹追蹤到接大轉子的肌腱端。</li>
+<li data-sync-block="s19-l3-b0014" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="344" data-end="" data-time-source="precise"><strong>梨狀肌起始點注射</strong> <a class="ts" data-file="combined.mp4" data-t="344">▶ V1 05:44</a>：處理內側疼痛的關鍵注射目標與技巧。</li>
+<li data-sync-block="s19-l3-b0015" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="465" data-end="" data-time-source="precise"><strong>臀下動脈與陰部神經血管束</strong> <a class="ts" data-file="combined.mp4" data-t="465">▶ V1 07:45</a>：辨識臀下動脈與坐骨/股後皮/臀下神經共同的血管神經叢，示範薦神經叢注射。</li>
+<li data-sync-block="s19-l3-b0016" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="533" data-end="" data-time-source="precise"><strong>坐骨神經最佳定位法</strong> <a class="ts" data-file="combined.mp4" data-t="533">▶ V1 08:53</a>：坐骨棘+上孖肌是最可靠的定位地標。</li>
+<li data-sync-block="s19-l3-b0017" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="608" data-end="" data-time-source="precise"><strong>閉孔內肌肌腱（Waterfall徵象）</strong> <a class="ts" data-file="combined.mp4" data-t="608">▶ V1 10:08</a>：特徵性瀑布狀肌腱影像，向遠端接續下孖肌。</li>
+<li data-sync-block="s19-l3-b0018" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="653" data-end="" data-time-source="precise"><strong>股方肌與坐骨股骨間隙</strong> <a class="ts" data-file="combined.mp4" data-t="653">▶ V1 10:53</a>：辨識QF與坐骨股骨間隙撞擊症候群的解剖構造。</li>
+<li data-sync-block="s19-l3-b0019" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="723" data-end="" data-time-source="precise"><strong>髖臼後側盂唇評估</strong> <a class="ts" data-file="combined.mp4" data-t="723">▶ V1 12:03</a>：高回音三角形正常影像、動態測試分辨部分與全層撕裂，以及外側進針技巧。</li>
+<li data-sync-block="s19-l3-b0020" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="871" data-end="" data-time-source="precise"><strong>銜接：髖關節前方注射（第一段影片結束）</strong> <a class="ts" data-file="combined.mp4" data-t="871">▶ V1 14:31</a>：話題轉向前方注射，第一段錄影檔案在此切點結束。</li>
+<li data-sync-block="s19-l3-b0021" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="884" data-end="" data-time-source="precise"><strong>薦棘韌帶與薦結節韌帶</strong> <a class="ts" data-file="combined.mp4" data-t="884">▶ V1 14:44</a>：SS/ST韌帶辨識與記憶口訣（第二段錄影開始）。</li>
+<li data-sync-block="s19-l3-b0022" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="946" data-end="" data-time-source="precise"><strong>陰部神經與陰部內動脈（Alcock管入路）</strong> <a class="ts" data-file="combined.mp4" data-t="946">▶ V1 15:46</a>：陰部神經主幹阻斷技巧與血流吸收限制。</li>
+<li data-sync-block="s19-l3-b0023" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="1058" data-end="" data-time-source="precise"><strong>尾骨肌</strong> <a class="ts" data-file="combined.mp4" data-t="1058">▶ V1 17:38</a>：薄層肌肉地標，強調非熟練者不應注射的安全警示。</li>
+<li data-sync-block="s19-l3-b0024" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="1114" data-end="" data-time-source="precise"><strong>提肛肌</strong> <a class="ts" data-file="combined.mp4" data-t="1114">▶ V1 18:34</a>：三部分肌肉組成，作為神經血管束的安全深度屏障。</li>
+<li data-sync-block="s19-l3-b0025" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="1185" data-end="" data-time-source="precise"><strong>陰部神經周邊分支個別阻斷</strong> <a class="ts" data-file="combined.mp4" data-t="1185">▶ V1 19:45</a>：依症狀分布（生殖器/肛門/會陰）選擇背側支、下直腸支或會陰支個別阻斷。</li>
+<li data-sync-block="s19-l3-b0026" data-section-id="s19-l3" data-chapter-id="s19-l3" data-segment-id="s19" data-file="combined.mp4" data-start="1318" data-end="" data-time-source="precise"><strong>PFCN與坐骨神經、陰部神經背側支的鑑別（收尾）</strong> <a class="ts" data-file="combined.mp4" data-t="1318">▶ V1 21:58</a>：坐骨棘夾角點鑑別法，PFCN近端匯入薦神經叢、遠端止於股二頭肌聯合肌腱前層；教學示範結束。</li>
+</ul>
+</section>
+<section id="s1-l3" class="note-panel summary-section" data-section-kind="summary_note" data-segment-id="s1"><h1 id="psis地標與臀大中小肌">PSIS地標與臀大中小肌</h1>
+<p>先找一個固定地標避免掃描迷航 <a class="ts" data-file="combined.mp4" data-t="0">▶ V1 00:00</a>：從<strong>PSIS（Posterior Superior Iliac Spine，髂後上棘）</strong>開始，探頭往外側、下方移動。</p>
+<p>依序辨識三層臀肌 <a class="ts" data-file="combined.mp4" data-t="0">▶ V1 00:00</a>：先看到<strong>臀大肌</strong>（判斷依據：繼續往上移動時會消失）；再往上，<strong>臀小肌</strong>也消失，只剩<strong>臀中肌</strong>；臀中肌上方為脂肪層（超音波下無明顯肌纖維紋理，與肌肉層區隔明顯）。</p>
+<p><img class="fig" src="影片筆記整合/媒體/圖片/02_PSIS地標與臀大中小肌_01.jpg" loading="lazy"></p>
+</section>
+<section id="s2-l3" class="note-panel summary-section" data-section-kind="summary_note" data-segment-id="s2"><h1 id="臀上動脈與神經">臀上動脈與神經</h1>
+<p>確認大中小三條臀肌後，開啟<strong>都卜勒模式（Doppler Mode）</strong>可見血流訊號，即為<strong>臀上動脈（Superior Gluteal Artery）</strong> <a class="ts" data-file="combined.mp4" data-t="57">▶ V1 00:57</a>。探頭繼續往下移動，可在動脈淺層（背側淺層）找到<strong>臀上神經（Superior Gluteal Nerve）</strong> <a class="ts" data-file="combined.mp4" data-t="63">▶ V1 01:03</a>。</p>
+<p><strong>臨床應用</strong> <a class="ts" data-file="combined.mp4" data-t="82">▶ V1 01:22</a>：多數情況在此處做<strong>dry needling</strong>（含或不含藥物）進行<strong>trigger point injection（激痛點注射）</strong>。講者個人習慣：先做<strong>臀上神經水擴術（hydrodissection）</strong>注入少量水分離神經，退針後再個別誘發twitch反應、逐一注射，效果較佳 <a class="ts" data-file="combined.mp4" data-t="97">▶ V1 01:37</a>。</p>
+<p><img class="fig" src="影片筆記整合/媒體/圖片/03_臀上動脈與神經_01.jpg" loading="lazy"></p>
+</section>
+<section id="s3-l3" class="note-panel summary-section" data-section-kind="summary_note" data-segment-id="s3"><h1 id="上臀皮神經題外話">上臀皮神經（題外話）</h1>
+<p>探頭再往上移動，臀小肌、臀大肌相繼消失，此時調整探頭變淺、提高Focus頻率，往上追蹤可找到<strong>上臀皮神經（Superior Cluneal Nerve）</strong> <a class="ts" data-file="combined.mp4" data-t="118">▶ V1 01:58</a>。</p>
+<p>此神經走向為<strong>T12到L2</strong>（部分人到<strong>L3</strong>以下），且為<strong>斜走</strong> <a class="ts" data-file="combined.mp4" data-t="175">▶ V1 02:55</a>。掃描時探頭需配合神經走向做<strong>旋轉（rotation）</strong>，才能找到三條分支的短軸影像——若探頭方向與神經平行則會找不到 <a class="ts" data-file="combined.mp4" data-t="182">▶ V1 03:02</a>。</p>
+<p><strong>臨床重點</strong> <a class="ts" data-file="combined.mp4" data-t="195">▶ V1 03:15</a>：此神經<strong>不屬於深部臀部症候群（Deep Gluteal Syndrome）</strong>範疇、是另一個獨立議題，但處理<strong>背部手術失敗症候群（Failed Back Syndrome）</strong>時要特別留意精準找到此神經。</p>
+</section>
+<section id="s4-l3" class="note-panel summary-section" data-section-kind="summary_note" data-segment-id="s4"><h1 id="坐骨大切跡">坐骨大切跡</h1>
+<p>確認大中小三條臀肌後，探頭繼續往下移動，會看到骨頭出現一個凹槽，即<strong>坐骨大切跡（Greater Sciatic Notch，又稱Greater Sciatic Foramen）</strong> <a class="ts" data-file="combined.mp4" data-t="217">▶ V1 03:37</a>。這是找到梨狀肌的前置地標。</p>
+</section>
+<section id="s5-l3" class="note-panel summary-section" data-section-kind="summary_note" data-segment-id="s5"><h1 id="梨狀肌與肌腱">梨狀肌與肌腱</h1>
+<p>在坐骨大切跡處，預期會看到<strong>梨狀肌（Piriformis Muscle）</strong>浮現 <a class="ts" data-file="combined.mp4" data-t="246">▶ V1 04:06</a>。技巧：探頭先往內移動讓薦骨（sacrum）出現，再做rotation，由內上到外下方向可清楚看到梨狀肌（梭狀肌腹外觀）<a class="ts" data-file="combined.mp4" data-t="269">▶ V1 04:29</a>。</p>
+<p>繼續往下追蹤（梨狀肌走向很斜），可找到其肌腱，接到<strong>大轉子（Greater Trochanter）</strong>——即<strong>梨狀肌肌腱交接處（Muscle-Tendon Junction）</strong> <a class="ts" data-file="combined.mp4" data-t="277">▶ V1 04:37</a>。</p>
+<p><img class="fig" src="影片筆記整合/媒體/圖片/06_梨狀肌與肌腱_01.jpg" loading="lazy"></p>
+<p><img class="fig" src="影片筆記整合/媒體/圖片/06_梨狀肌與肌腱_02.jpg" loading="lazy"></p>
+</section>
+<section id="s6-l3" class="note-panel summary-section" data-section-kind="summary_note" data-segment-id="s6"><h1 id="梨狀肌起始點注射">梨狀肌起始點注射</h1>
+<p><strong>臨床情境</strong> <a class="ts" data-file="combined.mp4" data-t="344">▶ V1 05:44</a>：若病人疼痛部位不在正中間、而是更內側，需先請病人指認疼痛位置（可用觸診加壓確認：正中/內側/外側）。若疼痛偏內側，需注射的目標是<strong>梨狀肌起始點（origin）</strong>，位於<strong>薦骨前緣</strong> <a class="ts" data-file="combined.mp4" data-t="366">▶ V1 06:06</a>。</p>
+<p><strong>掃描技巧</strong> <a class="ts" data-file="combined.mp4" data-t="419">▶ V1 06:59</a>：找到梨狀肌後，探頭內側緣往下轉（rotation），目標是讓薦骨影像消失，即可看到梨狀肌接到薦骨底下的起始點位置。</p>
+<p><strong>注射技巧</strong> <a class="ts" data-file="combined.mp4" data-t="444">▶ V1 07:24</a>：可選擇<strong>out-of-plane</strong>或<strong>in-plane</strong>、從內往外進針。此區域<strong>臀上動脈（Superior Gluteal Artery）</strong>就在附近，須留意血管位置。</p>
+<p><img class="fig" src="影片筆記整合/媒體/圖片/07_梨狀肌起始點注射_01.jpg" loading="lazy"></p>
+</section>
+<section id="s7-l3" class="note-panel summary-section" data-section-kind="summary_note" data-segment-id="s7"><h1 id="臀下動脈與陰部神經血管束">臀下動脈與陰部神經血管束</h1>
+<p>在梨狀肌下方，可見<strong>臀下動脈（Inferior Gluteal Artery）</strong>（上方則是臀上動脈）<a class="ts" data-file="combined.mp4" data-t="471">▶ V1 07:51</a>。其旁邊是<strong>陰部神經血管叢（Pudendal Neurovascular Bundle）</strong>，包含<strong>坐骨神經（Sciatic Nerve）</strong>、<strong>股後皮神經（PFCN, Posterior Femoral Cutaneous Nerve）</strong>與<strong>臀下神經（Inferior Gluteal Nerve）</strong>等 <a class="ts" data-file="combined.mp4" data-t="481">▶ V1 08:01</a>。</p>
+<p><strong>臨床技巧</strong> <a class="ts" data-file="combined.mp4" data-t="492">▶ V1 08:12</a>：若病人除了疼痛外還伴隨神經血管症狀，處理完梨狀肌後，可讓針稍微穿破深層的<strong>肌外膜（Epimysium）</strong>，使針略微離開梨狀肌，再注射，讓水直接灌注在<strong>薦神經叢（Sacral Plexus）</strong>旁邊。進針需緩慢，穿破後開始推水，若見水沿此處流動即代表位置正確——此為<strong>薦神經叢注射（Sacral Plexus Injection）</strong>技巧 <a class="ts" data-file="combined.mp4" data-t="518">▶ V1 08:38</a>。</p>
+</section>
+<section id="s8-l3" class="note-panel summary-section" data-section-kind="summary_note" data-segment-id="s8"><h1 id="坐骨神經最佳定位法">坐骨神經最佳定位法</h1>
+<p>若血管密布不易安全注射（或梨狀肌已萎縮、擔心傷及深部構造），可放棄該處，繼續往遠端追蹤，即可見<strong>坐骨神經（Sciatic Nerve）</strong>浮現——這是坐骨神經第一個明顯浮現的位置 <a class="ts" data-file="combined.mp4" data-t="554">▶ V1 09:14</a>。</p>
+<p><strong>臨床上尋找坐骨神經最快最準的方法</strong> <a class="ts" data-file="combined.mp4" data-t="577">▶ V1 09:37</a>：先找到<strong>坐骨棘（Ischial Spine）</strong>，其上方會看到<strong>上孖肌（Superior Gemellus Muscle）</strong>，再更淺層即為坐骨神經。無論坐骨神經是否有解剖變異，都能在坐骨棘+上孖肌的位置找到 <a class="ts" data-file="combined.mp4" data-t="594">▶ V1 09:54</a>。</p>
+<p><img class="fig" src="影片筆記整合/媒體/圖片/09_坐骨神經最佳定位法_01.jpg" loading="lazy"></p>
+</section>
+<section id="s9-l3" class="note-panel summary-section" data-section-kind="summary_note" data-segment-id="s9"><h1 id="閉孔內肌肌腱waterfall徵象">閉孔內肌肌腱（Waterfall徵象）</h1>
+<p>確認坐骨神經位置後，探頭穩定往遠端移動，會看到構造像「瀑布（Waterfall）」般垂落的影像，即<strong>閉孔內肌（Obturator Internus, OI）肌腱</strong>的特徵性超音波徵象 <a class="ts" data-file="combined.mp4" data-t="616">▶ V1 10:16</a>。</p>
+<p>再往遠端平移，可見OI肌腱，其正下方即為<strong>下孖肌（Inferior Gemellus）</strong> <a class="ts" data-file="combined.mp4" data-t="635">▶ V1 10:35</a>。再更往遠，肌腱消失，該處全部為下孖肌肌腹；判斷依據是其深部可見股骨頭（Femoral Head）——後側骨頭可見，即代表上方仍是下孖肌 <a class="ts" data-file="combined.mp4" data-t="653">▶ V1 10:53</a>。</p>
+</section>
+<section id="s10-l3" class="note-panel summary-section" data-section-kind="summary_note" data-segment-id="s10"><h1 id="股方肌與坐骨股骨間隙">股方肌與坐骨股骨間隙</h1>
+<p>探頭再調深、Focus調低，繼續往遠端推進，深部的股骨頭影像會消失（骨影「打開」）；此時上方是<strong>股方肌（Quadratus Femoris, QF）</strong>，下方為<strong>閉孔外肌（Obturator Externus）</strong> <a class="ts" data-file="combined.mp4" data-t="670">▶ V1 11:10</a>。</p>
+<p>此處位置即為<strong>坐骨股骨間隙（Ischiofemoral Space）</strong>——若坐骨神經在此處受夾擠，稱為<strong>坐骨股骨間隙撞擊症候群（Ischiofemoral Space Syndrome）</strong> <a class="ts" data-file="combined.mp4" data-t="699">▶ V1 11:39</a>。</p>
+<p><strong>注射技巧</strong> <a class="ts" data-file="combined.mp4" data-t="708">▶ V1 11:48</a>：若此處需處理，可選擇從外往內進針，注意旁邊會有<strong>股二頭肌聯合肌腱（Conjoint/Common Tendon of Biceps Femoris）</strong>。</p>
+<p><img class="fig" src="影片筆記整合/媒體/圖片/11_股方肌與坐骨股骨間隙_01.jpg" loading="lazy"></p>
+</section>
+<section id="s11-l3" class="note-panel summary-section" data-section-kind="summary_note" data-segment-id="s11"><h1 id="髖臼後側盂唇評估">髖臼後側盂唇評估</h1>
+<p><strong>臨床情境</strong> <a class="ts" data-file="combined.mp4" data-t="731">▶ V1 12:11</a>：若病人在下孖肌位置疼痛，但<strong>沒有麻刺（神經症狀）</strong>，較不像坐骨神經問題，此時應留意是否為<strong>髖臼後側盂唇（Posterior Hip Labrum）</strong>病灶 <a class="ts" data-file="combined.mp4" data-t="740">▶ V1 12:20</a>。</p>
+<p><strong>正常盂唇超音波影像</strong> <a class="ts" data-file="combined.mp4" data-t="755">▶ V1 12:35</a>：呈<strong>高回音三角形（Hyperechoic Triangle）</strong>。若三角形內出現裂縫狀的<strong>低回音裂隙（Hypoechoic Cleft）</strong>，代表可能有撕裂 <a class="ts" data-file="combined.mp4" data-t="762">▶ V1 12:42</a>。</p>
+<p><strong>動態測試</strong> <a class="ts" data-file="combined.mp4" data-t="770">▶ V1 12:50</a>：若靜態影像無法確定，可做動態測試——理想做法是固定病人腳部做內外旋轉，但操作困難（即使有人協助也不易做到）<a class="ts" data-file="combined.mp4" data-t="783">▶ V1 13:03</a>。講者習慣改用<strong>屈膝牽引（fraction/flexion knee）</strong>擺位，輕柔做內外旋轉，觀察水（關節液）是否灌入盂唇裂縫 <a class="ts" data-file="combined.mp4" data-t="790">▶ V1 13:10</a>：若有水進入但未貫穿，為<strong>部分撕裂（partial tear）</strong>；若水已貫穿盂唇並流到上方，則為<strong>全層撕裂（full-thickness tear）</strong> <a class="ts" data-file="combined.mp4" data-t="804">▶ V1 13:24</a>。</p>
+<p><img class="fig" src="影片筆記整合/媒體/圖片/12_髖臼後側盂唇評估_01.jpg" loading="lazy"></p>
+<h3 id="盂唇注射進針路徑選擇-v1-1344">盂唇注射進針路徑選擇 <a class="ts" data-file="combined.mp4" data-t="824">▶ V1 13:44</a></h3>
+<ul>
+<li><strong>從內側進針</strong>：風險是會正中坐骨神經，不建議。</li>
+<li><strong>從外側進針</strong>：容易被大轉子骨頭擋住，角度不理想。</li>
+<li data-sync-block="s11-l3-b0001" data-section-id="s11-l3" data-chapter-id="s11-l3" data-segment-id="s11" data-file="combined.mp4" data-start="840" data-end="" data-time-source="precise"><strong>解法</strong> <a class="ts" data-file="combined.mp4" data-t="840">▶ V1 14:00</a>：外側探頭往頭端（cephalad）移動，當大轉子骨頭影像消失，即可找到進針空間；接著測量進針深度，探頭頭外側再往頭端轉，即可打到盂唇位置 <a class="ts" data-file="combined.mp4" data-t="862">▶ V1 14:22</a>。</li>
+</ul>
+</section>
+<section id="s12-l3" class="note-panel summary-section" data-section-kind="summary_note" data-segment-id="s12"><h1 id="銜接髖關節前方注射影片中斷">銜接：髖關節前方注射（影片中斷）</h1>
+<p>講者開始說明原本髖關節（Hip Joint）注射多從前方進針，並開始討論若遇到特殊情況（如血管、動脈問題）的處理方式 <a class="ts" data-file="combined.mp4" data-t="871">▶ V1 14:31</a>——<strong>此處影片檔案結束，內容未完整</strong>，未涵蓋完整的髖關節前方注射技巧。</p>
+</section>
+<section id="s13-l3" class="note-panel summary-section" data-section-kind="summary_note" data-segment-id="s13"><h1 id="薦棘韌帶與薦結節韌帶">薦棘韌帶與薦結節韌帶</h1>
+<p>換一個施力點重壓，可見清楚的<strong>薦棘韌帶（Sacrospinous Ligament, SS）</strong>與<strong>薦結節韌帶（Sacrotuberous Ligament, ST）</strong>影像 <a class="ts" data-file="combined.mp4" data-t="884">▶ V1 14:44</a>。</p>
+<p><strong>記憶口訣</strong>：坐骨棘（Ischial Spine）接薦骨（Sacrum），兩者都是「S」開頭，故稱<strong>薦棘韌帶（SS）</strong><a class="ts" data-file="combined.mp4" data-t="899">▶ V1 14:59</a>；另一條韌帶從薦骨斜走接到坐骨結節（Ischial Tuberosity），故稱<strong>薦結節韌帶（ST）</strong> <a class="ts" data-file="combined.mp4" data-t="905">▶ V1 15:05</a>。SS韌帶走向斜向，探頭需擺成與其走向垂直的角度（oblique view）才能看到其短軸影像。兩條韌帶之間有一塊黑色區域，並非液體，而是<strong>脂肪層</strong> <a class="ts" data-file="combined.mp4" data-t="938">▶ V1 15:38</a>。</p>
+</section>
+<section id="s14-l3" class="note-panel summary-section" data-section-kind="summary_note" data-segment-id="s14"><h1 id="陰部神經與陰部內動脈alcock管入路">陰部神經與陰部內動脈（Alcock管入路）</h1>
+<p>在兩韌帶間脂肪層偏亮處，即為<strong>陰部神經（Pudendal Nerve）</strong> <a class="ts" data-file="combined.mp4" data-t="946">▶ V1 15:46</a>。開啟都卜勒模式可找到其外側緣的<strong>陰部內動脈（Internal Pudendal Artery）</strong> <a class="ts" data-file="combined.mp4" data-t="999">▶ V1 16:39</a>。</p>
+<p><strong>注射技巧</strong> <a class="ts" data-file="combined.mp4" data-t="1012">▶ V1 16:52</a>：可選擇從內往外進針，讓針尖穿過<strong>薦結節韌帶（Sacrotuberous Ligament）</strong>，將針停在韌帶與神經之間的間隙，用水擴法（hydrodissection）進行<strong>陰部神經主幹阻斷（Main Trunk Pudendal Nerve Block）</strong>。</p>
+<p><strong>臨床提醒</strong> <a class="ts" data-file="combined.mp4" data-t="1042">▶ V1 17:22</a>：此處組織血流豐富，注射藥物容易被快速吸收，效果可能因此打折扣，須向病人説明此限制。</p>
+</section>
+<section id="s15-l3" class="note-panel summary-section" data-section-kind="summary_note" data-segment-id="s15"><h1 id="尾骨肌">尾骨肌</h1>
+<p>薦棘/薦結節韌帶下方可見<strong>尾骨肌（Coccygeus Muscle）</strong>，非常薄，走向與薦棘韌帶大致平行但略有夾角 <a class="ts" data-file="combined.mp4" data-t="1058">▶ V1 17:38</a>。起點在坐骨棘下緣，往內繞行接到S3到尾椎前面內側緣，接近中線處逐漸移行為肌腱 <a class="ts" data-file="combined.mp4" data-t="1071">▶ V1 17:51</a>。</p>
+<p><strong>臨床應用</strong> <a class="ts" data-file="combined.mp4" data-t="1091">▶ V1 18:11</a>：若病人無麻刺症狀但此區域持續疼痛，可考慮在打完ST/SS韌帶後，讓針稍微再穿深一點，注射到尾骨肌。</p>
+<p><strong>⚠️ 安全警示</strong> <a class="ts" data-file="combined.mp4" data-t="1100">▶ V1 18:20</a>：此肌肉極薄，若操作不熟練、訓練不足，或病人肥胖導致影像不清時，<strong>千萬不要嘗試注射</strong>——其深部即為腸道，風險相對高。此段落僅作為認知教學，非鼓勵常規操作。</p>
+</section>
+<section id="s16-l3" class="note-panel summary-section" data-section-kind="summary_note" data-segment-id="s16"><h1 id="提肛肌">提肛肌</h1>
+<p>探頭繼續往遠端移動，緊盯一個<strong>高回音的泡狀構造（Hyperechoic Bubble）</strong>繼續追蹤，會看到陰部神經迅速分出<strong>三條分支（three divisions）</strong> <a class="ts" data-file="combined.mp4" data-t="1114">▶ V1 18:34</a>。</p>
+<p>分支下方可見較厚實的<strong>提肛肌（Levator Ani Muscle）</strong>，此肌肉由三部分肌肉組成（恥骨直腸肌、恥骨尾骨肌、髂骨尾骨肌）<a class="ts" data-file="combined.mp4" data-t="1137">▶ V1 18:57</a>。陰部神經血管束會被提肛肌推擠到較深處，因此在此處進行注射相對較安全——除非進針過深 <a class="ts" data-file="combined.mp4" data-t="1152">▶ V1 19:12</a>。</p>
+</section>
+<section id="s17-l3" class="note-panel summary-section" data-section-kind="summary_note" data-segment-id="s17"><h1 id="陰部神經周邊分支個別阻斷">陰部神經周邊分支個別阻斷</h1>
+<p>再往遠端，可見<strong>Alcock管（Alcock’s Canal，陰部管）</strong>，其上方分出神經分支 <a class="ts" data-file="combined.mp4" data-t="1185">▶ V1 19:45</a>。傳統做法是沿閉孔內肌（OI）旁直接water pooling灌注，理論上可涵蓋整體效果；但若病人症狀非常侷限在特定位置，則需個別阻斷對應分支 <a class="ts" data-file="combined.mp4" data-t="1207">▶ V1 20:07</a>：</p>
+<ul>
+<li data-sync-block="s17-l3-b0001" data-section-id="s17-l3" data-chapter-id="s17-l3" data-segment-id="s17" data-file="combined.mp4" data-start="1221" data-end="" data-time-source="precise"><strong>背側支（Dorsal Branch）</strong> <a class="ts" data-file="combined.mp4" data-t="1221">▶ V1 20:21</a>：較淺層，男性稱<strong>陰莖背神經（Dorsal Nerve of Penis）</strong>，女性則為對應的陰蒂背神經。若病人症狀僅侷限在生殖器隱私部位、無其他區域症狀，可能只需阻斷此淺層分支，不需深入。</li>
+<li data-sync-block="s17-l3-b0002" data-section-id="s17-l3" data-chapter-id="s17-l3" data-segment-id="s17" data-file="combined.mp4" data-start="1230" data-end="" data-time-source="precise"><strong>下直腸神經支（Inferior Rectal Branch）</strong> <a class="ts" data-file="combined.mp4" data-t="1230">▶ V1 20:30</a>：位置中間偏內側。若病人主訴肛門口附近不適，應鎖定此分支。</li>
+<li data-sync-block="s17-l3-b0003" data-section-id="s17-l3" data-chapter-id="s17-l3" data-segment-id="s17" data-file="combined.mp4" data-start="1233" data-end="" data-time-source="precise"><strong>會陰神經支（Perineal Branch）</strong> <a class="ts" data-file="combined.mp4" data-t="1233">▶ V1 20:33</a>：位置最深層。若疼痛位於肛門與生殖器之間的會陰部，屬此分支範圍，需打到較深層。</li>
+</ul>
+<p><strong>臨床提醒</strong> <a class="ts" data-file="combined.mp4" data-t="1287">▶ V1 21:27</a>：若三個區域症狀都有，則三層（淺、中、深）都需要阻斷。這也解釋了為何有時候「打得很漂亮」但病人反應不佳——可能是症狀分布橫跨多個分支範圍，僅打單一分支/單一深度不足以涵蓋。應詳細詢問病人症狀確切分布位置，再決定要打整體主幹還是個別分支。</p>
+</section>
+<section id="s18-l3" class="note-panel summary-section" data-section-kind="summary_note" data-segment-id="s18"><h1 id="pfcn與坐骨神經陰部神經背側支的鑑別收尾補充">PFCN與坐骨神經、陰部神經背側支的鑑別（收尾補充）</h1>
+<p><strong>鑑別方式</strong> <a class="ts" data-file="combined.mp4" data-t="1318">▶ V1 21:58</a>：以<strong>坐骨棘（Ischial Spine）尖端的夾角點（Angle Point）</strong>為基準——<strong>陰部神經背側皮支（Dorsal Cutaneous Branch of Pudendal Nerve）</strong>不會跨過此夾角到外側去，因此夾角外側只會看到<strong>PFCN（Posterior Femoral Cutaneous Nerve，股後皮神經）</strong>；夾角內側最表淺的第一層則是陰部神經的背側皮支分支，其正上方偏外側第一組會碰到PFCN，再更深則是<strong>坐骨神經（Sciatic Nerve）</strong>。</p>
+<p><strong>驗證PFCN走向</strong> <a class="ts" data-file="combined.mp4" data-t="1358">▶ V1 22:38</a>： - <strong>往頭端（近端）追蹤</strong>：可見一個小的高回音泡狀構造逐漸沉回，最終匯入<strong>薦神經叢（Sacral Plexus）</strong>。 - <strong>往遠端追蹤</strong>：最終停在<strong>股二頭肌聯合肌腱（Biceps Femoris Conjoint Tendon）</strong>前層，再往遠端才會逐漸走向皮下組織的淺層。</p>
+<p><strong>PFCN與坐骨神經的相對位置關係</strong> <a class="ts" data-file="combined.mp4" data-t="1400">▶ V1 23:20</a>：PFCN大約在<strong>閉孔內肌（OI）與上孖肌（SG）交界處</strong>開始穿出，出現時機略晚於坐骨神經——當坐骨神經已經到達上孖肌上緣時，PFCN也差不多要準備浮現。因此一旦OI已清楚可辨識，在其轉折角正上方通常已可看到PFCN。<strong>打針時須留意避免戳到PFCN。</strong></p>
+<p>講者總結PFCN、陰部神經分支與坐骨神經的相對關係，並以「我們demo完了，大家可以試試看」結束整場教學示範 <a class="ts" data-file="combined.mp4" data-t="1436">▶ V1 23:56</a>。</p>
+</section>
+      </section>
+      <div class="split-resizer" id="split-resizer" aria-label="調整總整理與逐字稿高度"></div>
+      <section class="note-half replay-pane" id="replay-pane">
+        <div class="pane-label">REPLAY / 逐字稿索引</div>
+        <div id="replay-empty" class="empty-panel">這個 segment 沒有逐字稿索引。</div>
+        <section id="s1-l2" class="note-panel replay-section" data-section-kind="transcript_index" data-segment-id="s1"><h1 id="psis地標與臀大中小肌-逐字稿">PSIS地標與臀大中小肌 逐字稿</h1>
+<blockquote>
+<p><strong>【INFO】 本機 whisper 轉錄，<mark>未經人工逐字校對</mark>；英文術語有辨識誤差，正確用詞以整理稿為準。</strong></p>
+</blockquote>
+<ul>
+<li data-sync-block="s1-l2-b0001" data-section-id="s1-l2" data-chapter-id="s1-l2" data-segment-id="s1" data-file="combined.mp4" data-start="0" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="0">▶ V1 00:00</a> 我的習慣都是每一個地方我都會找一個風鈴的mark 當作標定,我只要一迷航我就回來 這樣子,所以這怎麼辦呢?所以你去看喔 第一個我先找到PSIS Positive Superior Spine 那你會覺得說,欸?這真的嗎? 你把探頭往下,外側下方往下移動移動移動移動 你會發現,欸?這是臀大肌 你怎麼知道是臀大肌? 往上,往上,臀大肌會消失掉 往上消失掉</li>
+<li data-sync-block="s1-l2-b0002" data-section-id="s1-l2" data-chapter-id="s1-l2" data-segment-id="s1" data-file="combined.mp4" data-start="30" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="30">▶ V1 00:30</a> 臀小肌也不見了 所以這個時候就只剩下臀中肌跟上面 這個是脂肪層 那個不是那個肌肉 那個是脂肪層 focus 往上 然後調前 然後拉下 你看喔 這是脂肪 往下走 往下下下下下 這個 muscle 出現了 所以這個是脂肪層 這是大中小 所以就是這樣 好,那當我們已經看到這個之後呢,基本上大中小看到之後,我們可以開個Doublet Mode</li>
+</ul>
+</section>
+<section id="s2-l2" class="note-panel replay-section" data-section-kind="transcript_index" data-segment-id="s2"><h1 id="臀上動脈與神經-逐字稿">臀上動脈與神經 逐字稿</h1>
+<blockquote>
+<p><strong>【INFO】 本機 whisper 轉錄，<mark>未經人工逐字校對</mark>；英文術語有辨識誤差，正確用詞以整理稿為準。</strong></p>
+</blockquote>
+<ul>
+<li data-sync-block="s2-l2-b0001" data-section-id="s2-l2" data-chapter-id="s2-l2" data-segment-id="s2" data-file="combined.mp4" data-start="60" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="60">▶ V1 01:00</a> 繼續看到這邊會有血流,所以這個就是Sapir-Gluteus Artery 當我們確定Sapir-Gluteus Artery之後呢,基本上我們把探頭繼續往下,往下 你就可以找到這個就是Sapir-Gluteus Nerve,它會在Artery的淺層,應該說背側啦,背側淺層的位置 那這邊的用法就是說 然後我今天各位可能常用的就是 我今天在這邊做dry needle</li>
+<li data-sync-block="s2-l2-b0002" data-section-id="s2-l2" data-chapter-id="s2-l2" data-segment-id="s2" data-file="combined.mp4" data-start="90" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="90">▶ V1 01:30</a> 不管有沒有加藥 做dry needle去做所謂的trigger point injection 這樣子大中小 但是我個人習慣是我會先衝進來 先做subject gluteal nerve hydrodiscretion 先給它泡一點點水之後 我會再退針 再個別去誘發它的twitch 這樣子個別打下去 所以這樣效果會更好一點點 那你想說 好那我知道了 這是Sapire,Glute,Artery跟Nerve</li>
+</ul>
+</section>
+<section id="s3-l2" class="note-panel replay-section" data-section-kind="transcript_index" data-segment-id="s3"><h1 id="上臀皮神經題外話-逐字稿">上臀皮神經（題外話） 逐字稿</h1>
+<blockquote>
+<p><strong>【INFO】 本機 whisper 轉錄，<mark>未經人工逐字校對</mark>；英文術語有辨識誤差，正確用詞以整理稿為準。</strong></p>
+</blockquote>
+<ul>
+<li data-sync-block="s3-l2-b0001" data-section-id="s3-l2" data-chapter-id="s3-l2" data-segment-id="s3" data-file="combined.mp4" data-start="90" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="90">▶ V1 01:30</a> 然後但是如果我今天再往上</li>
+<li data-sync-block="s3-l2-b0002" data-section-id="s3-l2" data-chapter-id="s3-l2" data-segment-id="s3" data-file="combined.mp4" data-start="120" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="120">▶ V1 02:00</a> 往上 臀小不見了 臀大也不見了 只剩臀中 那再過來更往上更往上 這個時候我們把它探頭調淺 然後Focus Frequency調高 好然後再往上 再往上 所以你覺得我現在在找什麼 Sapira Kriyayana 上屯神經 那因為上屯神經我們上課真的沒有講</li>
+<li data-sync-block="s3-l2-b0003" data-section-id="s3-l2" data-chapter-id="s3-l2" data-segment-id="s3" data-file="combined.mp4" data-start="150" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="150">▶ V1 02:30</a> 因為它不屬於Deep Gautam Syndrome 它是另一個議題 那你想說 那為什麼我要這樣找 你去再看一次 我們本來是擺這樣子 為什麼我上面 你去看我探頭 不要看螢幕 你看我探頭 我這樣往上找上屯神經的時候 你看我是這樣子追上來 為什麼 最後變這樣子 因為上臀神經走法是這樣子 它是從T12到L2 有人甚至是L3以下</li>
+<li data-sync-block="s3-l2-b0004" data-section-id="s3-l2" data-chapter-id="s3-l2" data-segment-id="s3" data-file="combined.mp4" data-start="180" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="180">▶ V1 03:00</a> 它是斜走的 所以如果你今天這樣子的話 你會跟它平行 所以你會找不到 所以一般我們就是 上面叫轉rotation 這樣子 然後上去這樣推 你才能找到 它的三個branch的短軸 所以這個是特別是 你遇到fail back syndrome的時候 精準的時候上臀神經要特別去找他這樣子好不好 這是題外話 好 那這個你已經我們已經確定這邊的那個大中小三個肌肉之後 再過來下一個 我們就會開始往下看 所以你看喔</li>
+<li data-sync-block="s3-l2-b0005" data-section-id="s3-l2" data-chapter-id="s3-l2" data-segment-id="s3" data-file="combined.mp4" data-start="210" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="210">▶ V1 03:30</a> 一樣的臀大臀中臀小肌 然後再穩穩的往下往下往下好</li>
+</ul>
+</section>
+<section id="s4-l2" class="note-panel replay-section" data-section-kind="transcript_index" data-segment-id="s4"><h1 id="坐骨大切跡-逐字稿">坐骨大切跡 逐字稿</h1>
+<blockquote>
+<p><strong>【INFO】 本機 whisper 轉錄，<mark>未經人工逐字校對</mark>；英文術語有辨識誤差，正確用詞以整理稿為準。</strong></p>
+</blockquote>
+<ul>
+<li data-sync-block="s4-l2-b0001" data-section-id="s4-l2" data-chapter-id="s4-l2" data-segment-id="s4" data-file="combined.mp4" data-start="210" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="210">▶ V1 03:30</a> 你看這邊好像樣子不太一樣 所以我們先調身 調身調身 Focus往下 然後再調低,然後再調前一點點,調過頭 好,我們再做一次,你看喔,這是E臉 然後這邊,ㄟ,一個凹槽 所以這個就是有名的Great Sacritic Notch</li>
+<li data-sync-block="s4-l2-b0002" data-section-id="s4-l2" data-chapter-id="s4-l2" data-segment-id="s4" data-file="combined.mp4" data-start="240" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="240">▶ V1 04:00</a> 弱骨大切肌,有人叫Great Sacritic Forment</li>
+</ul>
+</section>
+<section id="s5-l2" class="note-panel replay-section" data-section-kind="transcript_index" data-segment-id="s5"><h1 id="梨狀肌與肌腱-逐字稿">梨狀肌與肌腱 逐字稿</h1>
+<blockquote>
+<p><strong>【INFO】 本機 whisper 轉錄，<mark>未經人工逐字校對</mark>；英文術語有辨識誤差，正確用詞以整理稿為準。</strong></p>
+</blockquote>
+<ul>
+<li data-sync-block="s5-l2-b0001" data-section-id="s5-l2" data-chapter-id="s5-l2" data-segment-id="s5" data-file="combined.mp4" data-start="240" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="240">▶ V1 04:00</a> 好,那這次怎麼辦? 既然我們大概有心理隱約知道說 這個地方應該是Performance Muscle要出來了 所以這時候你要怎麼去做檢查? 他建议就是说你要先往内往内让撒孔出来 往内然后再rotation 有没有 这个时候由内上到外下你的performing muscle就会很清楚 这个时候你就是顺着他顺他有没有</li>
+<li data-sync-block="s5-l2-b0002" data-section-id="s5-l2" data-chapter-id="s5-l2" data-segment-id="s5" data-file="combined.mp4" data-start="270" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="270">▶ V1 04:30</a> 这个就是performing muscle 你的缩状型的离状肌 然后再继续往下他很斜喔 你就可以做出他的tendon 在这个地方 所以這個是他的Tendon 接到他的 骨骨大專指 所以這個是Periformis Muscle Muscle Tendon Junction Periformis Tendon 接到 那個 Greater Trotient</li>
+<li data-sync-block="s5-l2-b0003" data-section-id="s5-l2" data-chapter-id="s5-l2" data-segment-id="s5" data-file="combined.mp4" data-start="300" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="300">▶ V1 05:00</a> 所以這個是怎麼去做Periformis Muscle 一路到Tendon的地方 我再重做一次 等 調亮 找到Greater Trotient Nudge 拉近內側 往遠端一點點然後在rotation做出Performance muscle 然後再過來 斜外往下 做出Tendon 所以這是Muscle 這個是很小的Tendon</li>
+<li data-sync-block="s5-l2-b0004" data-section-id="s5-l2" data-chapter-id="s5-l2" data-segment-id="s5" data-file="combined.mp4" data-start="330" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="330">▶ V1 05:30</a> 就這樣子 OK</li>
+</ul>
+</section>
+<section id="s6-l2" class="note-panel replay-section" data-section-kind="transcript_index" data-segment-id="s6"><h1 id="梨狀肌起始點注射-逐字稿">梨狀肌起始點注射 逐字稿</h1>
+<blockquote>
+<p><strong>【INFO】 本機 whisper 轉錄，<mark>未經人工逐字校對</mark>；英文術語有辨識誤差，正確用詞以整理稿為準。</strong></p>
+</blockquote>
+<ul>
+<li data-sync-block="s6-l2-b0001" data-section-id="s6-l2" data-chapter-id="s6-l2" data-segment-id="s6" data-file="combined.mp4" data-start="330" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="330">▶ V1 05:30</a> 那你想說好啦 那我既然已經知道這是Performance muscle Tendon 那我今天拉回來 拉回來 那如果今天這個Case跟我講說 我今天不是在正中間這邊疼痛 而是在更內側 什麼意思 也就是說我們今天會先問病人說 你到底是哪個地方痛 那如果他不能很肯定的時候 我們就會幫他病人做重壓 就會幫病人說 你是覺得是這邊痛</li>
+<li data-sync-block="s6-l2-b0002" data-section-id="s6-l2" data-chapter-id="s6-l2" data-segment-id="s6" data-file="combined.mp4" data-start="360" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="360">▶ V1 06:00</a> 還是這邊痛 還是偏外側痛 如果今天他是很內側這個地方疼痛的時候 很不幸的你要打的是譬如Fomins的Orange 它的起始點的位置 那所以起始點你要怎麼找 一樣 我今天找到Performing muscle之後呢 那時候你去看喔 你們看我的探頭就好 我要怎麼做出我的orange 這個時候我的探頭的內側緣這邊</li>
+<li data-sync-block="s6-l2-b0003" data-section-id="s6-l2" data-chapter-id="s6-l2" data-segment-id="s6" data-file="combined.mp4" data-start="390" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="390">▶ V1 06:30</a> 我要往下轉 往下轉 這裡 這個就是它的orange 它會在你的sacrum的前緣 所以你現在的目標就是要讓sacrum不見 所以我們再重做一次 你看喔 我今天 我今天先讓這個縮狀 沒事 先讓它放鬆一下 我先讓Periformis muscle出現 所以這個時候我內側圓</li>
+<li data-sync-block="s6-l2-b0004" data-section-id="s6-l2" data-chapter-id="s6-l2" data-segment-id="s6" data-file="combined.mp4" data-start="420" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="420">▶ V1 07:00</a> 內側的探頭 要rotation到圓端 有沒有 這裡 這個就是它接到你的sacrum底下的位置 所以這個是orange的位置 所以你要打針就是從這邊打到這個地方來 處理它的 所以它的疼痛就會在很內側 但是而且很深層的位置 那這邊注射 那你以這個case來講 supreme glute artery在這個地方 所以你可以選擇out of plane 或是in plane</li>
+<li data-sync-block="s6-l2-b0005" data-section-id="s6-l2" data-chapter-id="s6-l2" data-segment-id="s6" data-file="combined.mp4" data-start="450" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="450">▶ V1 07:30</a> 從內往外打到這裡都OK 所以這個是處理orange of the piriformis muscle 我再重做一次,你看哦,muscle building 那你可以這樣子 有沒有,這個地方 就是它的orange的位置</li>
+</ul>
+</section>
+<section id="s7-l2" class="note-panel replay-section" data-section-kind="transcript_index" data-segment-id="s7"><h1 id="臀下動脈與陰部神經血管束-逐字稿">臀下動脈與陰部神經血管束 逐字稿</h1>
+<blockquote>
+<p><strong>【INFO】 本機 whisper 轉錄，<mark>未經人工逐字校對</mark>；英文術語有辨識誤差，正確用詞以整理稿為準。</strong></p>
+</blockquote>
+<ul>
+<li data-sync-block="s7-l2-b0001" data-section-id="s7-l2" data-chapter-id="s7-l2" data-segment-id="s7" data-file="combined.mp4" data-start="450" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="450">▶ V1 07:30</a> 那再過來一下,扣除掉這個 之外呢,還有沒有什麼問題呢,你去看一下 底下這裡 這個地方你看,這邊黑黑的這個是誰啊 這個 inferior glute artery 上面是 superior glute artery 好,所以在它旁邊</li>
+<li data-sync-block="s7-l2-b0002" data-section-id="s7-l2" data-chapter-id="s7-l2" data-segment-id="s7" data-file="combined.mp4" data-start="480" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="480">▶ V1 08:00</a> 會是誰,succulent plexus succulent plexus 包含誰,cytine nerve PFCM 跟 Inferior Gluteal Nerve 四個神經 所以呢今天如果我可以的話 我今天會打 比如說我要打針的時候 如果有病人他會覺得說 這邊除了疼痛之外 又伴隨一些神經血的症狀的時候 我會選擇從內往外 除了治療那個Performance Muscle之後 我會試著讓我的針 稍微穿破底下的Epimycin 就是說讓針有點離</li>
+<li data-sync-block="s7-l2-b0003" data-section-id="s7-l2" data-chapter-id="s7-l2" data-segment-id="s7" data-file="combined.mp4" data-start="510" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="510">▶ V1 08:30</a> 一點點的離開Performance Muscle之後 然後推藥 讓水直接泡在你的sacroflexus旁邊 所以那個針必須要很慢的 這邊就要差不多停 然後一穿破 然後就是開始推水 如果你發現水是能沿著這邊流的時候 基本上你位置就是對的 這樣子好不好 所以這個是打sacroflexus 好</li>
+</ul>
+</section>
+<section id="s8-l2" class="note-panel replay-section" data-section-kind="transcript_index" data-segment-id="s8"><h1 id="坐骨神經最佳定位法-逐字稿">坐骨神經最佳定位法 逐字稿</h1>
+<blockquote>
+<p><strong>【INFO】 本機 whisper 轉錄，<mark>未經人工逐字校對</mark>；英文術語有辨識誤差，正確用詞以整理稿為準。</strong></p>
+</blockquote>
+<ul>
+<li data-sync-block="s8-l2-b0001" data-section-id="s8-l2" data-chapter-id="s8-l2" data-segment-id="s8" data-file="combined.mp4" data-start="510" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="510">▶ V1 08:30</a> 那你想說 嗯好 那我今天如果我覺得是說 假設這個病人 譬如說這邊到處都是血管</li>
+<li data-sync-block="s8-l2-b0002" data-section-id="s8-l2" data-chapter-id="s8-l2" data-segment-id="s8" data-file="combined.mp4" data-start="540" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="540">▶ V1 09:00</a> 你覺得說我真的不好打 或是他譬如像我們 有的是Performance Muscle萎縮掉了 我覺得沒有把握會不會傷到底下的鮑 這個時候你就不要 不要在這邊打 你就是再繼續往下走 再繼續往下走 所以你看喔 當我繼續往下走的時候 有人就穿出來了 慢慢的慢慢的就出來 慢慢的出來 沒錯 這個就是Sciatic Nerve 第一個衝出來的會是坐骨神經 所以呢</li>
+<li data-sync-block="s8-l2-b0003" data-section-id="s8-l2" data-chapter-id="s8-l2" data-segment-id="s8" data-file="combined.mp4" data-start="570" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="570">▶ V1 09:30</a> 跳起來 你看喔,這個就是Scytic nerve 所以呢,意味著 這個是臨床上最好找到坐骨神經的位置 也就是說呢,當你能找到East Gear Spine 上面會找到Superior Geminus Muscle 以及更淺層的Scytic nerve 所以這個是找Scytic nerve最快最準的方式 就是找到East Gear Spine 跟Superior Geminus Muscle 你就可以找到停在上面</li>
+<li data-sync-block="s8-l2-b0004" data-section-id="s8-l2" data-chapter-id="s8-l2" data-segment-id="s8" data-file="combined.mp4" data-start="600" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="600">▶ V1 10:00</a> 不管他有沒有變異,他都可以找得到 每個人都是在這邊 這個是Supreme Geminus Muscle 上面的Psyche Nerve</li>
+</ul>
+</section>
+<section id="s9-l2" class="note-panel replay-section" data-section-kind="transcript_index" data-segment-id="s9"><h1 id="閉孔內肌肌腱waterfall徵象-逐字稿">閉孔內肌肌腱（Waterfall徵象） 逐字稿</h1>
+<blockquote>
+<p><strong>【INFO】 本機 whisper 轉錄，<mark>未經人工逐字校對</mark>；英文術語有辨識誤差，正確用詞以整理稿為準。</strong></p>
+</blockquote>
+<ul>
+<li data-sync-block="s9-l2-b0001" data-section-id="s9-l2" data-chapter-id="s9-l2" data-segment-id="s9" data-file="combined.mp4" data-start="600" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="600">▶ V1 10:00</a> 好了,那我已經確定是Psyche Nerve之後呢 我把探頭穩穩的再往遠端移動 往遠端移動,你會發現 這邊喔,你會發現這邊有東西掉下來的 這個我們叫做Waterfall 瀑布的樣子 所以這個就是OI Operator Intenance 那我們再穩穩的往遠端平一點點 你會發現這邊有誰啊?</li>
+<li data-sync-block="s9-l2-b0002" data-section-id="s9-l2" data-chapter-id="s9-l2" data-segment-id="s9" data-file="combined.mp4" data-start="630" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="630">▶ V1 10:30</a> 你會發現這個是什麼東西? OI的Tendon 闢孔內肌的肌腱 它基本上會在這邊 然後在它正下方 會找到Inferior Geminus 下絕絕肌的Muscle 所以再更往下 你看喔 肌腱它的Tendon就不見了 所以現在這個全部都是Inferior Geminus Muscle</li>
+</ul>
+</section>
+<section id="s10-l2" class="note-panel replay-section" data-section-kind="transcript_index" data-segment-id="s10"><h1 id="股方肌與坐骨股骨間隙-逐字稿">股方肌與坐骨股骨間隙 逐字稿</h1>
+<blockquote>
+<p><strong>【INFO】 本機 whisper 轉錄，<mark>未經人工逐字校對</mark>；英文術語有辨識誤差，正確用詞以整理稿為準。</strong></p>
+</blockquote>
+<ul>
+<li data-sync-block="s10-l2-b0001" data-section-id="s10-l2" data-chapter-id="s10-l2" data-segment-id="s10" data-file="combined.mp4" data-start="630" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="630">▶ V1 10:30</a> 那你怎麼知道現在是Inferior Geminus Muscle 底下你可以看到這邊有泵 你的Femoral Head 還在這個地方</li>
+<li data-sync-block="s10-l2-b0002" data-section-id="s10-l2" data-chapter-id="s10-l2" data-segment-id="s10" data-file="combined.mp4" data-start="660" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="660">▶ V1 11:00</a> 所以基本上只要底下能讓你找到骨骨頭 後側的骨骨頭 就意味著上面這一段還是所謂的Inferior Geminus Muscle 如果你今天 我們調深一點點 Focus 低一點點 好 你看喔 下面有Bomb 所以這是Inferior Geminus Muscle 如果我推得非常非常的遠 下面Bomb不見了 打開了 所以這個時候呢 基本上 上面是QF</li>
+<li data-sync-block="s10-l2-b0003" data-section-id="s10-l2" data-chapter-id="s10-l2" data-segment-id="s10" data-file="combined.mp4" data-start="690" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="690">▶ V1 11:30</a> 鼻孔 鼓方肌 下面是鼻孔外肌 所以你這個位置就會落在所謂的 East Keel Femoral Space 所以如果這邊 坐骨神經被夾到 我們就叫East Keel Femoral Space Syndrome 那你打針的時候 假設這邊有問題喔 你可以選擇從外往內 打這個Sykinner 然後旁邊就會是Control Tendon 骨二頭肌的Control Tendon會在他旁邊 這樣子</li>
+<li data-sync-block="s10-l2-b0004" data-section-id="s10-l2" data-chapter-id="s10-l2" data-segment-id="s10" data-file="combined.mp4" data-start="720" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="720">▶ V1 12:00</a> 好 那這個我們剛剛已經講過了</li>
+</ul>
+</section>
+<section id="s11-l2" class="note-panel replay-section" data-section-kind="transcript_index" data-segment-id="s11"><h1 id="髖臼後側盂唇評估-逐字稿">髖臼後側盂唇評估 逐字稿</h1>
+<blockquote>
+<p><strong>【INFO】 本機 whisper 轉錄，<mark>未經人工逐字校對</mark>；英文術語有辨識誤差，正確用詞以整理稿為準。</strong></p>
+</blockquote>
+<ul>
+<li data-sync-block="s11-l2-b0001" data-section-id="s11-l2" data-chapter-id="s11-l2" data-segment-id="s11" data-file="combined.mp4" data-start="720" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="720">▶ V1 12:00</a> 所以我們剛剛說過 我們已經確定好這個是Inferior Geminus Muscle 所以我們課堂上有提過 後面還有誰要去注意他 如果這個病人在這裡會痛 可是他居然沒有麻刺的問題 除了上面肌肉之外 大概就不太那麼像坐骨神經 所以基本上你反而要去注意會不會反而是 Hip Labyrinth, Posterior Side Hip Labyrinth 有問題 所以基本上你會看到這個是 Posterior Hip Labyrinth</li>
+<li data-sync-block="s11-l2-b0002" data-section-id="s11-l2" data-chapter-id="s11-l2" data-segment-id="s11" data-file="combined.mp4" data-start="750" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="750">▶ V1 12:30</a> 那你想說,我要怎麼知道它真的有問題呢? 它很直觀,也就是說你現在看到這個是 Hyper-Accord 白色的三角形,如果你看到有一點點 我們叫做Hyper-Accord Crave 在裡面 就是一些裂縫,黑的裂縫在裡面,它可能有問題 那如果今天你覺得說,我不能很肯定耶 那我可以做動態的dynamic 所以基本上我可以擺在這個角度之後 比較標準的是我要抓住他的腳 甚至請另一個人抓住他的腳</li>
+<li data-sync-block="s11-l2-b0003" data-section-id="s11-l2" data-chapter-id="s11-l2" data-segment-id="s11" data-file="combined.mp4" data-start="780" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="780">▶ V1 13:00</a> 做internal跟external rotation 但是因為這個你會發現超難做 基本上就算你有幫手你也做不到 所以基本上我一般習慣會讓他做fraction knee 擺好之後再做external 跟輕輕的不要太猛 在這樣子,external跟internal 去看有沒有水灌進你的labyrinth 白色在流行裡面,如果有,但是沒有灌穿,那是partial 如果你發現那個水已經灌穿了那個labyrinth</li>
+<li data-sync-block="s11-l2-b0004" data-section-id="s11-l2" data-chapter-id="s11-l2" data-segment-id="s11" data-file="combined.mp4" data-start="810" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="810">▶ V1 13:30</a> 而且到上面去了,基本上就是full了 full of injury了 所以這個是去看labyrinth有沒有問題 好,那基本上好,那我假設舉例 假設這個case是labyrinth真的這邊破了一個洞 那你想說好吧,那我今天要打針了 打針 從內側打好不好 會正中撒基納 從外側打如何呢 比較會被蹦擋住 好像角度不太優 所以怎麼辦 所以這個時候 你們再看一下我的探頭 要怎麼打針</li>
+<li data-sync-block="s11-l2-b0005" data-section-id="s11-l2" data-chapter-id="s11-l2" data-segment-id="s11" data-file="combined.mp4" data-start="840" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="840">▶ V1 14:00</a> 你的外側探頭要往頭端移動 有沒有 你看 再看一下螢幕上看 你看 我當外側往頭端移動的時候 鼓鼓大聲的就不見了 所以這個時候你就有機會可以這樣打進來 那唯一現在你就是要去算長度了 所以我們就是拉進來 拉進來 拉進來 拉進來 拉進來 好 拉到這邊 然後在頭外側 往頭端轉 這裡 所以基本上你這樣子 大概就可以打得到他的Labyrinth</li>
+</ul>
+</section>
+<section id="s12-l2" class="note-panel replay-section" data-section-kind="transcript_index" data-segment-id="s12"><h1 id="銜接髖關節前方注射第一段影片結束-逐字稿">銜接：髖關節前方注射（第一段影片結束） 逐字稿</h1>
+<blockquote>
+<p><strong>【INFO】 本機 whisper 轉錄，<mark>未經人工逐字校對</mark>；英文術語有辨識誤差，正確用詞以整理稿為準。</strong></p>
+</blockquote>
+<ul>
+<li data-sync-block="s12-l2-b0001" data-section-id="s12-l2" data-chapter-id="s12-l2" data-segment-id="s12" data-file="combined.mp4" data-start="870" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="870">▶ V1 14:30</a> 那再來一個問題就是說 我今天如果我假設 我今天我們本來是說我們Hip Joint 我們從前面打 如果你遇到是他真的很不幸 不是那個 artery 整個 就是一端重壓的意思</li>
+</ul>
+</section>
+<section id="s13-l2" class="note-panel replay-section" data-section-kind="transcript_index" data-segment-id="s13"><h1 id="薦棘韌帶與薦結節韌帶-逐字稿">薦棘韌帶與薦結節韌帶 逐字稿</h1>
+<blockquote>
+<p><strong>【INFO】 本機 whisper 轉錄，<mark>未經人工逐字校對</mark>；英文術語有辨識誤差，正確用詞以整理稿為準。</strong></p>
+</blockquote>
+<ul>
+<li data-sync-block="s13-l2-b0001" data-section-id="s13-l2" data-chapter-id="s13-l2" data-segment-id="s13" data-file="combined.mp4" data-start="870" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="870">▶ V1 14:30</a> 所以這個時候你就會看到非常漂亮的 sacrospinous ligament 跟sacrotubular ligament 那你想說 那個臨床解剖學很容易背不起來 到底誰是SS 誰是ST 你就想 這個叫做ischia spine</li>
+<li data-sync-block="s13-l2-b0002" data-section-id="s13-l2" data-chapter-id="s13-l2" data-segment-id="s13" data-file="combined.mp4" data-start="900" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="900">▶ V1 15:00</a> 這邊是sacrum 對不對 所以既然是S ischia spine 接sacrum 所以這個叫做S跟S 所以我們叫sacrospinous ligament 上面是從succulent一路往斜走 切到底下的esquire tuberosity 所以我們叫做succulent tuberous ligament 所以這個是SS是succulent spinous ligament 是long SSVU是長軸 這個相對來講這個擺位因為它是這樣斜走的 所以你現在擺著這樣子是optic view</li>
+<li data-sync-block="s13-l2-b0003" data-section-id="s13-l2" data-chapter-id="s13-l2" data-segment-id="s13" data-file="combined.mp4" data-start="930" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="930">▶ V1 15:30</a> 所以這個是它的短軸 中間然後在這個兩個韌帶之間 中間黑黑的這個不是水喔 這個是脂肪電 它會有一堆脂肪存在這個地方 所以在這個地方 這一個亮亮的這一個 就會是所謂的putin donor</li>
+</ul>
+</section>
+<section id="s14-l2" class="note-panel replay-section" data-section-kind="transcript_index" data-segment-id="s14"><h1 id="陰部神經與陰部內動脈alcock管入路-逐字稿">陰部神經與陰部內動脈（Alcock管入路） 逐字稿</h1>
+<blockquote>
+<p><strong>【INFO】 本機 whisper 轉錄，<mark>未經人工逐字校對</mark>；英文術語有辨識誤差，正確用詞以整理稿為準。</strong></p>
+</blockquote>
+<ul>
+<li data-sync-block="s14-l2-b0001" data-section-id="s14-l2" data-chapter-id="s14-l2" data-segment-id="s14" data-file="combined.mp4" data-start="930" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="930">▶ V1 15:30</a> 陰部神經 然後你就可以開血流去找 internal putin artery 通常會在它的外側緣 所以我們再重做一次 各位再看一次喔 所以你看喔</li>
+<li data-sync-block="s14-l2-b0002" data-section-id="s14-l2" data-chapter-id="s14-l2" data-segment-id="s14" data-file="combined.mp4" data-start="960" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="960">▶ V1 16:00</a> 我先找到ischia spine 找到sagatina 往內 然後呢succutibus ligament FET 所以這個時候我們就開duplen mode 先關掉一下 先把它做好 再來一次</li>
+<li data-sync-block="s14-l2-b0003" data-section-id="s14-l2" data-chapter-id="s14-l2" data-segment-id="s14" data-file="combined.mp4" data-start="990" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="990">▶ V1 16:30</a> 然後拉近 然後這個時候呢,我們就開Doubler Mode 去找我們的Internal Putendal Artery在這裡 剛跳的是在這個地方 所以基本上Secting Nerve在這個地方 所以我們就可以全擇從內往外 讓你的Needle Tip穿過你的Sacral Tube Ligament 然後就讓你的針停在Bait裡面 用水炎法去做Putendal Nerve</li>
+<li data-sync-block="s14-l2-b0004" data-section-id="s14-l2" data-chapter-id="s14-l2" data-segment-id="s14" data-file="combined.mp4" data-start="1020" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="1020">▶ V1 17:00</a> 整個Mind Trunk的Nerve Block 但是你要小心 也不要小心 你要有知道 因为既然这边沸腾很多 所以意味着你的药 很容易会被吸收掉 所以有的时候 效果会不太优 所以这个是你要知道的事情 我们再重做一次 好</li>
+<li data-sync-block="s14-l2-b0005" data-section-id="s14-l2" data-chapter-id="s14-l2" data-segment-id="s14" data-file="combined.mp4" data-start="1050" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="1050">▶ V1 17:30</a> 那你看 我們既然Ligament都做出來了 Pedal Numb也做出來了 欸 你想說下面這個勒 下面這是誰</li>
+</ul>
+</section>
+<section id="s15-l2" class="note-panel replay-section" data-section-kind="transcript_index" data-segment-id="s15"><h1 id="尾骨肌-逐字稿">尾骨肌 逐字稿</h1>
+<blockquote>
+<p><strong>【INFO】 本機 whisper 轉錄，<mark>未經人工逐字校對</mark>；英文術語有辨識誤差，正確用詞以整理稿為準。</strong></p>
+</blockquote>
+<ul>
+<li data-sync-block="s15-l2-b0001" data-section-id="s15-l2" data-chapter-id="s15-l2" data-segment-id="s15" data-file="combined.mp4" data-start="1050" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="1050">▶ V1 17:30</a> Costitial Muscle Costitial Muscle其實很薄 它非常非常薄 它近乎有點約略和你的Sacral Spinous Ligament 有點約略平行 但是它是有角度的 它不是完全平行 它是接近平行 那它通常是外後內薄 為什麼 它是從外面Ischia Spine的下緣 往內繞著接到你的S3到Costis</li>
+<li data-sync-block="s15-l2-b0002" data-section-id="s15-l2" data-chapter-id="s15-l2" data-segment-id="s15" data-file="combined.mp4" data-start="1080" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="1080">▶ V1 18:00</a> 尾端的前面內側緣 所以他在他的正中間的時候 會變比較變成是Tendon 所以這邊的話 假設萬一這個病人他是沒有麻症狀 但他這一代都很痛 一般我就會選擇打ST ligament SS ligament 然後再破穿一點點打在這個地方 打一下他的costal joint muscle 但是如果對各位來講 如果真的不是那麼熟 或是你有沒有訓不好 或真的這個病人比較胖 影像不太清楚的時候千萬不要打</li>
+<li data-sync-block="s15-l2-b0003" data-section-id="s15-l2" data-chapter-id="s15-l2" data-segment-id="s15" data-file="combined.mp4" data-start="1110" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="1110">▶ V1 18:30</a> 為什麼?因為它很薄 底下這邊其實就是腸道了</li>
+</ul>
+</section>
+<section id="s16-l2" class="note-panel replay-section" data-section-kind="transcript_index" data-segment-id="s16"><h1 id="提肛肌-逐字稿">提肛肌 逐字稿</h1>
+<blockquote>
+<p><strong>【INFO】 本機 whisper 轉錄，<mark>未經人工逐字校對</mark>；英文術語有辨識誤差，正確用詞以整理稿為準。</strong></p>
+</blockquote>
+<ul>
+<li data-sync-block="s16-l2-b0001" data-section-id="s16-l2" data-chapter-id="s16-l2" data-segment-id="s16" data-file="combined.mp4" data-start="1110" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="1110">▶ V1 18:30</a> 所以你若不熟就千萬就不要打 相對來講會很危險這樣子 所以只是讓大家知道有這個東西在 好,那你想說那為什麼 那這邊還有什麼東西可以再講呢? 還有的,你看喔 好了,你看喔,我們一樣的做出了所謂的 Subcutaneous Ligaments 跟Coccygeal Muscles 那Mint Trunk, Plutonium都沒出來了 我們再往遠端再移動</li>
+<li data-sync-block="s16-l2-b0002" data-section-id="s16-l2" data-chapter-id="s16-l2" data-segment-id="s16" data-file="combined.mp4" data-start="1140" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="1140">▶ V1 19:00</a> 你就盯著這一個Bubble 盯著這個Hypercoil Bubble 往遠端再移動 你會發現它是很迅速的 迅速的就分出了三個Division 1 2 3 這樣衝下來 那你想說這個底下是不是誰 這個不是豹 這個其實是蠻厚的 我們叫Levitate Any Muscle 提綱肌 它有三個肌肉 那你不用使勁 它就是直接被Levitate Any Muscle 那所以豹就會被推到很底下去 所以在這邊打針相對來講比較安全一點點</li>
+<li data-sync-block="s16-l2-b0003" data-section-id="s16-l2" data-chapter-id="s16-l2" data-segment-id="s16" data-file="combined.mp4" data-start="1170" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="1170">▶ V1 19:30</a> 除非你打得太深 所以我們再重做一次 你看喔 我們把深度也調深一點點 focus 往上 好來我們再做一次 這邊</li>
+</ul>
+</section>
+<section id="s17-l2" class="note-panel replay-section" data-section-kind="transcript_index" data-segment-id="s17"><h1 id="陰部神經周邊分支個別阻斷-逐字稿">陰部神經周邊分支個別阻斷 逐字稿</h1>
+<blockquote>
+<p><strong>【INFO】 本機 whisper 轉錄，<mark>未經人工逐字校對</mark>；英文術語有辨識誤差，正確用詞以整理稿為準。</strong></p>
+</blockquote>
+<ul>
+<li data-sync-block="s17-l2-b0001" data-section-id="s17-l2" data-chapter-id="s17-l2" data-segment-id="s17" data-file="combined.mp4" data-start="1170" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="1170">▶ V1 19:30</a> 這個是 puttano nerve 在這個地方 然後往下 在這裡 豹是到大概這個地方來 所以你看到這邊 這邊的話就所謂ACROS CONNECT 所以你看到這個上面會是有NUR</li>
+<li data-sync-block="s17-l2-b0002" data-section-id="s17-l2" data-chapter-id="s17-l2" data-segment-id="s17" data-file="combined.mp4" data-start="1200" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="1200">▶ V1 20:00</a> 從上面這個分子出來 所以一般傳統上我們打ACROS CONNECT 我們會沿著OI的旁邊 這樣子直接這樣泡下去 理論上會有效 可是如果今天這個病人症狀非常非常的明確 是在特定位置的時候 你大概就只能個別打 什麼意思 在比較淺層這個地方的話 我們叫Dorsal Cutaneous Branch 中間會叫做Inferior Rectus 下面這個偏內側 但是更深層的位置</li>
+<li data-sync-block="s17-l2-b0003" data-section-id="s17-l2" data-chapter-id="s17-l2" data-segment-id="s17" data-file="combined.mp4" data-start="1230" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="1230">▶ V1 20:30</a> 我們叫做所謂的Peroneal Branch 那什麼意思 也就是說呢 如果今天這個case 他跟你講說 他不是整片的 他是很極端的個別問題 譬如說他是跟你講說 像男生的話 我們這個男生的話 我們叫做Dorsal Cutaneous Branch Tool of the Penis 女生的話 他的名稱叫做 所以也就是說如果今天他是跟你講說是在這一個很隱私部位出現疼痛的時候 其他都沒有</li>
+<li data-sync-block="s17-l2-b0004" data-section-id="s17-l2" data-chapter-id="s17-l2" data-segment-id="s17" data-file="combined.mp4" data-start="1260" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="1260">▶ V1 21:00</a> 那你搞不好考慮就是我今天真的就停在淺層就好了 不用到那麼深 他要打的是淺層的分子 如果他今天跟你講說 我今天是在肛門口附近很不舒服 那這個時候你的inferior rectus branch大概就要打 那如果今天他跟你講說他是偏向 那 annus 跟隱屍部位的中間那一段 那個會是屬於 peroneal branch 所以基本上你就要打到更深層的地方 除非他是三層都有 那就是很不幸就任命了 就是淺 中 深 三段都要打</li>
+<li data-sync-block="s17-l2-b0005" data-section-id="s17-l2" data-chapter-id="s17-l2" data-segment-id="s17" data-file="combined.mp4" data-start="1290" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="1290">▶ V1 21:30</a> 因為他這邊已經分支出來了 所以換句話說 為什麼你有時候遇到就是 我明明打得很漂亮 可是為什麼病人反應不好 有時候你可能要仔細問一下 他到底是哪一段有這種症狀 如果是三層都有 那就在直照全部都打這樣子 如果個別哪一段就個別挑那一個Branch去打掉就適合這樣子 所以這個是Gluttonal Nerve的Peripheral Branch 我們再做我們把它調前再重做一次給各位看 Dorsal Cutaneous Branch</li>
+</ul>
+</section>
+<section id="s18-l2" class="note-panel replay-section" data-section-kind="transcript_index" data-segment-id="s18"><h1 id="pfcn與坐骨神經陰部神經背側支的鑑別-逐字稿">PFCN與坐骨神經、陰部神經背側支的鑑別 逐字稿</h1>
+<blockquote>
+<p><strong>【INFO】 本機 whisper 轉錄，<mark>未經人工逐字校對</mark>；英文術語有辨識誤差，正確用詞以整理稿為準。</strong></p>
+</blockquote>
+<ul>
+<li data-sync-block="s18-l2-b0001" data-section-id="s18-l2" data-chapter-id="s18-l2" data-segment-id="s18" data-file="combined.mp4" data-start="1290" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="1290">▶ V1 21:30</a> 它的鉴别方式很简单</li>
+<li data-sync-block="s18-l2-b0002" data-section-id="s18-l2" data-chapter-id="s18-l2" data-segment-id="s18" data-file="combined.mp4" data-start="1320" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="1320">▶ V1 22:00</a> 你看到这是East Key of Spine 的尖 Angle 点 我们的Dorsal Cutaneous Branch 不会跨过 它到外侧去 所以只要从这个尖点的 外侧全部只会看到 PFCN 这个Angle端的内侧会是 第一个会碰到的最前层 是Dorsal Cutaneous Branch of the Cutaneous Nerve 也就是說你這angle side的內側緣都會是putano nerve的division</li>
+<li data-sync-block="s18-l2-b0003" data-section-id="s18-l2" data-chapter-id="s18-l2" data-segment-id="s18" data-file="combined.mp4" data-start="1350" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="1350">▶ V1 22:30</a> 正上方偏外側的第一組就會碰到PFCN 然後這個是cytid nerve 那你想說真的嗎 這個地方那個真的是所謂的cytid nerve嗎 所以你去看喔 PFCN嗎 你看喔 我們今天做出來這個東西之後呢 這裡 在這裡 往頭端移動 這個小小的Bubble它會慢慢的沉回來 沉回來</li>
+<li data-sync-block="s18-l2-b0004" data-section-id="s18-l2" data-chapter-id="s18-l2" data-segment-id="s18" data-file="combined.mp4" data-start="1380" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="1380">▶ V1 23:00</a> 然後呢 最後會停到你的 回到Sacral Braces裡面去 那如果我今天是往 遠端走 往遠端走 對準它 It’s hard to look at it from a distance. 有沒有 它最後會停在誰上面 Bicep Conjure Tendon的前層 然後再更往遠端走 它才會慢慢的 他才會慢慢的往他的皮下組織那邊 前程的地方去衝 所以那一個是PFCN 所以PFCN他會在大概是OI跟SG交界的地方</li>
+<li data-sync-block="s18-l2-b0005" data-section-id="s18-l2" data-chapter-id="s18-l2" data-segment-id="s18" data-file="combined.mp4" data-start="1410" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="1410">▶ V1 23:30</a> 他就會開始穿出來 也就是說他會比Sykinner慢沒有錯 但是當你Sykinner已經從SG 已經到SG上緣的時候 他其實也快要準備要出來了 所以當你一旦OI已經很明顯的時候 基本上在他的那個轉折角的正上方 其實已經可以看得到你的PFCN 所以打針的時候可以打 但是要小心不要戳到它就對了 這樣子 所以這個是PFCN 然後Tendonerve Division</li>
+<li data-sync-block="s18-l2-b0006" data-section-id="s18-l2" data-chapter-id="s18-l2" data-segment-id="s18" data-file="combined.mp4" data-start="1440" data-end="" data-time-source="precise"><a class="ts" data-file="combined.mp4" data-t="1440">▶ V1 24:00</a> 跟SciPinNerve 就這樣子 OK 好啦我們DEMO完了 這樣大家可以試試看</li>
+</ul>
+</section>
+      </section>
+    </div>
+  </main>
+  <aside class="segment-drawer" id="segment-drawer">
+    <div class="drawer-head"><strong>Segments</strong></div>
+    <div class="segment-group">總覽</div>
+<button class="segment-card" type="button" data-segment-id="s19" data-file="combined.mp4" data-t="0.0"><span class="segment-number">seg01</span><span class="segment-title">全場總整理</span><span class="segment-meta">總整理 / 逐字索引 · 總長 22:43</span></button>
+<div class="segment-group"></div>
+<button class="segment-card" type="button" data-segment-id="s1" data-file="combined.mp4" data-t="0.0"><span class="segment-number">seg02</span><span class="segment-title">PSIS地標與臀大中小肌</span><span class="segment-meta">總整理 / 逐字索引 · 總長 01:15</span></button>
+<button class="segment-card" type="button" data-segment-id="s2" data-file="combined.mp4" data-t="60.0"><span class="segment-number">seg03</span><span class="segment-title">臀上動脈與神經</span><span class="segment-meta">總整理 / 逐字索引 · 總長 01:15</span></button>
+<button class="segment-card" type="button" data-segment-id="s3" data-file="combined.mp4" data-t="90.0"><span class="segment-number">seg04</span><span class="segment-title">上臀皮神經（題外話）</span><span class="segment-meta">總整理 / 逐字索引 · 總長 02:45</span></button>
+<button class="segment-card" type="button" data-segment-id="s4" data-file="combined.mp4" data-t="210.0"><span class="segment-number">seg05</span><span class="segment-title">坐骨大切跡</span><span class="segment-meta">總整理 / 逐字索引 · 總長 01:15</span></button>
+<button class="segment-card" type="button" data-segment-id="s5" data-file="combined.mp4" data-t="240.0"><span class="segment-number">seg06</span><span class="segment-title">梨狀肌與肌腱</span><span class="segment-meta">總整理 / 逐字索引 · 總長 02:15</span></button>
+<button class="segment-card" type="button" data-segment-id="s6" data-file="combined.mp4" data-t="330.0"><span class="segment-number">seg07</span><span class="segment-title">梨狀肌起始點注射</span><span class="segment-meta">總整理 / 逐字索引 · 總長 02:45</span></button>
+<button class="segment-card" type="button" data-segment-id="s7" data-file="combined.mp4" data-t="450.0"><span class="segment-number">seg08</span><span class="segment-title">臀下動脈與陰部神經血管束</span><span class="segment-meta">總整理 / 逐字索引 · 總長 01:45</span></button>
+<button class="segment-card" type="button" data-segment-id="s8" data-file="combined.mp4" data-t="510.0"><span class="segment-number">seg09</span><span class="segment-title">坐骨神經最佳定位法</span><span class="segment-meta">總整理 / 逐字索引 · 總長 02:15</span></button>
+<button class="segment-card" type="button" data-segment-id="s9" data-file="combined.mp4" data-t="600.0"><span class="segment-number">seg10</span><span class="segment-title">閉孔內肌肌腱（Waterfall徵象）</span><span class="segment-meta">總整理 / 逐字索引 · 總長 01:15</span></button>
+<button class="segment-card" type="button" data-segment-id="s10" data-file="combined.mp4" data-t="630.0"><span class="segment-number">seg11</span><span class="segment-title">股方肌與坐骨股骨間隙</span><span class="segment-meta">總整理 / 逐字索引 · 總長 02:15</span></button>
+<button class="segment-card" type="button" data-segment-id="s11" data-file="combined.mp4" data-t="840.0"><span class="segment-number">seg12</span><span class="segment-title">髖臼後側盂唇評估</span><span class="segment-meta">總整理 / 逐字索引 · 總長 02:45</span></button>
+<button class="segment-card" type="button" data-segment-id="s12" data-file="combined.mp4" data-t="870.0"><span class="segment-number">seg13</span><span class="segment-title">銜接：髖關節前方注射（第一段影片結束）</span><span class="segment-meta">總整理 / 逐字索引 · 總長 00:45</span></button>
+<button class="segment-card" type="button" data-segment-id="s13" data-file="combined.mp4" data-t="870.0"><span class="segment-number">seg14</span><span class="segment-title">薦棘韌帶與薦結節韌帶</span><span class="segment-meta">總整理 / 逐字索引 · 總長 01:45</span></button>
+<button class="segment-card" type="button" data-segment-id="s14" data-file="combined.mp4" data-t="930.0"><span class="segment-number">seg15</span><span class="segment-title">陰部神經與陰部內動脈（Alcock管入路）</span><span class="segment-meta">總整理 / 逐字索引 · 總長 02:45</span></button>
+<button class="segment-card" type="button" data-segment-id="s15" data-file="combined.mp4" data-t="1050.0"><span class="segment-number">seg16</span><span class="segment-title">尾骨肌</span><span class="segment-meta">總整理 / 逐字索引 · 總長 01:45</span></button>
+<button class="segment-card" type="button" data-segment-id="s16" data-file="combined.mp4" data-t="1110.0"><span class="segment-number">seg17</span><span class="segment-title">提肛肌</span><span class="segment-meta">總整理 / 逐字索引 · 總長 01:45</span></button>
+<button class="segment-card" type="button" data-segment-id="s17" data-file="combined.mp4" data-t="1221.0"><span class="segment-number">seg18</span><span class="segment-title">陰部神經周邊分支個別阻斷</span><span class="segment-meta">總整理 / 逐字索引 · 總長 02:45</span></button>
+<button class="segment-card" type="button" data-segment-id="s18" data-file="combined.mp4" data-t="1290.0"><span class="segment-number">seg19</span><span class="segment-title">PFCN與坐骨神經、陰部神經背側支的鑑別</span><span class="segment-meta">總整理 / 逐字索引 · 總長 03:15</span></button>
+  </aside>
+</div>
+
+<script>const TIMELINE = {"schema_version": 3, "viewer_version": "layout2/2026.08.04", "profile": "interactive_html", "layout": "segment-drawer-right", "course": "_lecture", "date": "", "media_root": ".", "media_root_relative_to_html": ".", "media_src": {"combined.mp4": "影片筆記整合/媒體/影片/01_PSIS地標與臀大中小肌.mp4"}, "media_parts": [{"file": "combined.mp4", "relative_path": "影片筆記整合/媒體/影片/01_PSIS地標與臀大中小肌.mp4", "exists": true, "duration_sec": null}], "chapters": [{"chapter_id": "s19-l3", "section_id": "s19-l3", "title": "總整理 — seg19 全場總整理", "group": "總覽", "section_kind": "summary_note", "source_order": 0, "media_file": "combined.mp4", "start_sec": 0.0, "end_sec": 1363.0, "first_block_id": "s19-l3-b0001", "block_count": 26}, {"chapter_id": "s1-l2", "section_id": "s1-l2", "title": "逐字稿索引 — seg01 PSIS地標與臀大中小肌", "group": "", "section_kind": "transcript_index", "source_order": 1, "media_file": "combined.mp4", "start_sec": 0.0, "end_sec": 75.0, "first_block_id": "s1-l2-b0001", "block_count": 2}, {"chapter_id": "s2-l2", "section_id": "s2-l2", "title": "逐字稿索引 — seg02 臀上動脈與神經", "group": "", "section_kind": "transcript_index", "source_order": 2, "media_file": "combined.mp4", "start_sec": 60.0, "end_sec": 135.0, "first_block_id": "s2-l2-b0001", "block_count": 2}, {"chapter_id": "s3-l2", "section_id": "s3-l2", "title": "逐字稿索引 — seg03 上臀皮神經（題外話）", "group": "", "section_kind": "transcript_index", "source_order": 3, "media_file": "combined.mp4", "start_sec": 90.0, "end_sec": 255.0, "first_block_id": "s3-l2-b0001", "block_count": 5}, {"chapter_id": "s4-l2", "section_id": "s4-l2", "title": "逐字稿索引 — seg04 坐骨大切跡", "group": "", "section_kind": "transcript_index", "source_order": 4, "media_file": "combined.mp4", "start_sec": 210.0, "end_sec": 285.0, "first_block_id": "s4-l2-b0001", "block_count": 2}, {"chapter_id": "s5-l2", "section_id": "s5-l2", "title": "逐字稿索引 — seg05 梨狀肌與肌腱", "group": "", "section_kind": "transcript_index", "source_order": 5, "media_file": "combined.mp4", "start_sec": 240.0, "end_sec": 375.0, "first_block_id": "s5-l2-b0001", "block_count": 4}, {"chapter_id": "s6-l2", "section_id": "s6-l2", "title": "逐字稿索引 — seg06 梨狀肌起始點注射", "group": "", "section_kind": "transcript_index", "source_order": 6, "media_file": "combined.mp4", "start_sec": 330.0, "end_sec": 495.0, "first_block_id": "s6-l2-b0001", "block_count": 5}, {"chapter_id": "s7-l2", "section_id": "s7-l2", "title": "逐字稿索引 — seg07 臀下動脈與陰部神經血管束", "group": "", "section_kind": "transcript_index", "source_order": 7, "media_file": "combined.mp4", "start_sec": 450.0, "end_sec": 555.0, "first_block_id": "s7-l2-b0001", "block_count": 3}, {"chapter_id": "s8-l2", "section_id": "s8-l2", "title": "逐字稿索引 — seg08 坐骨神經最佳定位法", "group": "", "section_kind": "transcript_index", "source_order": 8, "media_file": "combined.mp4", "start_sec": 510.0, "end_sec": 645.0, "first_block_id": "s8-l2-b0001", "block_count": 4}, {"chapter_id": "s9-l2", "section_id": "s9-l2", "title": "逐字稿索引 — seg09 閉孔內肌肌腱（Waterfall徵象）", "group": "", "section_kind": "transcript_index", "source_order": 9, "media_file": "combined.mp4", "start_sec": 600.0, "end_sec": 675.0, "first_block_id": "s9-l2-b0001", "block_count": 2}, {"chapter_id": "s10-l2", "section_id": "s10-l2", "title": "逐字稿索引 — seg10 股方肌與坐骨股骨間隙", "group": "", "section_kind": "transcript_index", "source_order": 10, "media_file": "combined.mp4", "start_sec": 630.0, "end_sec": 765.0, "first_block_id": "s10-l2-b0001", "block_count": 4}, {"chapter_id": "s11-l2", "section_id": "s11-l2", "title": "逐字稿索引 — seg11 髖臼後側盂唇評估", "group": "", "section_kind": "transcript_index", "source_order": 11, "media_file": "combined.mp4", "start_sec": 720.0, "end_sec": 885.0, "first_block_id": "s11-l2-b0001", "block_count": 5}, {"chapter_id": "s11-l3", "section_id": "s11-l3", "title": "總整理 — seg11 髖臼後側盂唇評估", "group": "", "section_kind": "summary_note", "source_order": 11, "media_file": "combined.mp4", "start_sec": 840.0, "end_sec": 885.0, "first_block_id": "s11-l3-b0001", "block_count": 1}, {"chapter_id": "s12-l2", "section_id": "s12-l2", "title": "逐字稿索引 — seg12 銜接：髖關節前方注射（第一段影片結束）", "group": "", "section_kind": "transcript_index", "source_order": 12, "media_file": "combined.mp4", "start_sec": 870.0, "end_sec": 915.0, "first_block_id": "s12-l2-b0001", "block_count": 1}, {"chapter_id": "s13-l2", "section_id": "s13-l2", "title": "逐字稿索引 — seg13 薦棘韌帶與薦結節韌帶", "group": "", "section_kind": "transcript_index", "source_order": 13, "media_file": "combined.mp4", "start_sec": 870.0, "end_sec": 975.0, "first_block_id": "s13-l2-b0001", "block_count": 3}, {"chapter_id": "s14-l2", "section_id": "s14-l2", "title": "逐字稿索引 — seg14 陰部神經與陰部內動脈（Alcock管入路）", "group": "", "section_kind": "transcript_index", "source_order": 14, "media_file": "combined.mp4", "start_sec": 930.0, "end_sec": 1095.0, "first_block_id": "s14-l2-b0001", "block_count": 5}, {"chapter_id": "s15-l2", "section_id": "s15-l2", "title": "逐字稿索引 — seg15 尾骨肌", "group": "", "section_kind": "transcript_index", "source_order": 15, "media_file": "combined.mp4", "start_sec": 1050.0, "end_sec": 1155.0, "first_block_id": "s15-l2-b0001", "block_count": 3}, {"chapter_id": "s16-l2", "section_id": "s16-l2", "title": "逐字稿索引 — seg16 提肛肌", "group": "", "section_kind": "transcript_index", "source_order": 16, "media_file": "combined.mp4", "start_sec": 1110.0, "end_sec": 1215.0, "first_block_id": "s16-l2-b0001", "block_count": 3}, {"chapter_id": "s17-l2", "section_id": "s17-l2", "title": "逐字稿索引 — seg17 陰部神經周邊分支個別阻斷", "group": "", "section_kind": "transcript_index", "source_order": 17, "media_file": "combined.mp4", "start_sec": 1170.0, "end_sec": 1335.0, "first_block_id": "s17-l2-b0001", "block_count": 5}, {"chapter_id": "s17-l3", "section_id": "s17-l3", "title": "總整理 — seg17 陰部神經周邊分支個別阻斷", "group": "", "section_kind": "summary_note", "source_order": 17, "media_file": "combined.mp4", "start_sec": 1221.0, "end_sec": 1278.0, "first_block_id": "s17-l3-b0001", "block_count": 3}, {"chapter_id": "s18-l2", "section_id": "s18-l2", "title": "逐字稿索引 — seg18 PFCN與坐骨神經、陰部神經背側支的鑑別", "group": "", "section_kind": "transcript_index", "source_order": 18, "media_file": "combined.mp4", "start_sec": 1290.0, "end_sec": 1485.0, "first_block_id": "s18-l2-b0001", "block_count": 6}], "segments": [{"segment_id": "s19", "segment_number": "seg01", "title": "全場總整理", "group": "總覽", "group_label": "總覽", "source_order": 0, "media_file": "combined.mp4", "start_sec": 0.0, "end_sec": 1363.0, "duration_sec": 1363.0, "media_files": ["combined.mp4"], "summary_section_id": "s19-l3", "replay_section_id": "s19-l3", "summary_first_block_id": "s19-l3-b0001", "replay_first_block_id": "s19-l3-b0001", "section_ids": ["s19-l3", "s19-l3"]}, {"segment_id": "s1", "segment_number": "seg02", "title": "PSIS地標與臀大中小肌", "group": "", "group_label": "", "source_order": 1, "media_file": "combined.mp4", "start_sec": 0.0, "end_sec": 75.0, "duration_sec": 75.0, "media_files": ["combined.mp4"], "summary_section_id": "s1-l3", "replay_section_id": "s1-l2", "summary_first_block_id": null, "replay_first_block_id": "s1-l2-b0001", "section_ids": ["s1-l3", "s1-l2"]}, {"segment_id": "s2", "segment_number": "seg03", "title": "臀上動脈與神經", "group": "", "group_label": "", "source_order": 2, "media_file": "combined.mp4", "start_sec": 60.0, "end_sec": 135.0, "duration_sec": 75.0, "media_files": ["combined.mp4"], "summary_section_id": "s2-l3", "replay_section_id": "s2-l2", "summary_first_block_id": null, "replay_first_block_id": "s2-l2-b0001", "section_ids": ["s2-l3", "s2-l2"]}, {"segment_id": "s3", "segment_number": "seg04", "title": "上臀皮神經（題外話）", "group": "", "group_label": "", "source_order": 3, "media_file": "combined.mp4", "start_sec": 90.0, "end_sec": 255.0, "duration_sec": 165.0, "media_files": ["combined.mp4"], "summary_section_id": "s3-l3", "replay_section_id": "s3-l2", "summary_first_block_id": null, "replay_first_block_id": "s3-l2-b0001", "section_ids": ["s3-l3", "s3-l2"]}, {"segment_id": "s4", "segment_number": "seg05", "title": "坐骨大切跡", "group": "", "group_label": "", "source_order": 4, "media_file": "combined.mp4", "start_sec": 210.0, "end_sec": 285.0, "duration_sec": 75.0, "media_files": ["combined.mp4"], "summary_section_id": "s4-l3", "replay_section_id": "s4-l2", "summary_first_block_id": null, "replay_first_block_id": "s4-l2-b0001", "section_ids": ["s4-l3", "s4-l2"]}, {"segment_id": "s5", "segment_number": "seg06", "title": "梨狀肌與肌腱", "group": "", "group_label": "", "source_order": 5, "media_file": "combined.mp4", "start_sec": 240.0, "end_sec": 375.0, "duration_sec": 135.0, "media_files": ["combined.mp4"], "summary_section_id": "s5-l3", "replay_section_id": "s5-l2", "summary_first_block_id": null, "replay_first_block_id": "s5-l2-b0001", "section_ids": ["s5-l3", "s5-l2"]}, {"segment_id": "s6", "segment_number": "seg07", "title": "梨狀肌起始點注射", "group": "", "group_label": "", "source_order": 6, "media_file": "combined.mp4", "start_sec": 330.0, "end_sec": 495.0, "duration_sec": 165.0, "media_files": ["combined.mp4"], "summary_section_id": "s6-l3", "replay_section_id": "s6-l2", "summary_first_block_id": null, "replay_first_block_id": "s6-l2-b0001", "section_ids": ["s6-l3", "s6-l2"]}, {"segment_id": "s7", "segment_number": "seg08", "title": "臀下動脈與陰部神經血管束", "group": "", "group_label": "", "source_order": 7, "media_file": "combined.mp4", "start_sec": 450.0, "end_sec": 555.0, "duration_sec": 105.0, "media_files": ["combined.mp4"], "summary_section_id": "s7-l3", "replay_section_id": "s7-l2", "summary_first_block_id": null, "replay_first_block_id": "s7-l2-b0001", "section_ids": ["s7-l3", "s7-l2"]}, {"segment_id": "s8", "segment_number": "seg09", "title": "坐骨神經最佳定位法", "group": "", "group_label": "", "source_order": 8, "media_file": "combined.mp4", "start_sec": 510.0, "end_sec": 645.0, "duration_sec": 135.0, "media_files": ["combined.mp4"], "summary_section_id": "s8-l3", "replay_section_id": "s8-l2", "summary_first_block_id": null, "replay_first_block_id": "s8-l2-b0001", "section_ids": ["s8-l3", "s8-l2"]}, {"segment_id": "s9", "segment_number": "seg10", "title": "閉孔內肌肌腱（Waterfall徵象）", "group": "", "group_label": "", "source_order": 9, "media_file": "combined.mp4", "start_sec": 600.0, "end_sec": 675.0, "duration_sec": 75.0, "media_files": ["combined.mp4"], "summary_section_id": "s9-l3", "replay_section_id": "s9-l2", "summary_first_block_id": null, "replay_first_block_id": "s9-l2-b0001", "section_ids": ["s9-l3", "s9-l2"]}, {"segment_id": "s10", "segment_number": "seg11", "title": "股方肌與坐骨股骨間隙", "group": "", "group_label": "", "source_order": 10, "media_file": "combined.mp4", "start_sec": 630.0, "end_sec": 765.0, "duration_sec": 135.0, "media_files": ["combined.mp4"], "summary_section_id": "s10-l3", "replay_section_id": "s10-l2", "summary_first_block_id": null, "replay_first_block_id": "s10-l2-b0001", "section_ids": ["s10-l3", "s10-l2"]}, {"segment_id": "s11", "segment_number": "seg12", "title": "髖臼後側盂唇評估", "group": "", "group_label": "", "source_order": 11, "media_file": "combined.mp4", "start_sec": 840.0, "end_sec": 885.0, "duration_sec": 165.0, "media_files": ["combined.mp4"], "summary_section_id": "s11-l3", "replay_section_id": "s11-l2", "summary_first_block_id": "s11-l3-b0001", "replay_first_block_id": "s11-l2-b0001", "section_ids": ["s11-l3", "s11-l2"]}, {"segment_id": "s12", "segment_number": "seg13", "title": "銜接：髖關節前方注射（第一段影片結束）", "group": "", "group_label": "", "source_order": 12, "media_file": "combined.mp4", "start_sec": 870.0, "end_sec": 915.0, "duration_sec": 45.0, "media_files": ["combined.mp4"], "summary_section_id": "s12-l3", "replay_section_id": "s12-l2", "summary_first_block_id": null, "replay_first_block_id": "s12-l2-b0001", "section_ids": ["s12-l3", "s12-l2"]}, {"segment_id": "s13", "segment_number": "seg14", "title": "薦棘韌帶與薦結節韌帶", "group": "", "group_label": "", "source_order": 13, "media_file": "combined.mp4", "start_sec": 870.0, "end_sec": 975.0, "duration_sec": 105.0, "media_files": ["combined.mp4"], "summary_section_id": "s13-l3", "replay_section_id": "s13-l2", "summary_first_block_id": null, "replay_first_block_id": "s13-l2-b0001", "section_ids": ["s13-l3", "s13-l2"]}, {"segment_id": "s14", "segment_number": "seg15", "title": "陰部神經與陰部內動脈（Alcock管入路）", "group": "", "group_label": "", "source_order": 14, "media_file": "combined.mp4", "start_sec": 930.0, "end_sec": 1095.0, "duration_sec": 165.0, "media_files": ["combined.mp4"], "summary_section_id": "s14-l3", "replay_section_id": "s14-l2", "summary_first_block_id": null, "replay_first_block_id": "s14-l2-b0001", "section_ids": ["s14-l3", "s14-l2"]}, {"segment_id": "s15", "segment_number": "seg16", "title": "尾骨肌", "group": "", "group_label": "", "source_order": 15, "media_file": "combined.mp4", "start_sec": 1050.0, "end_sec": 1155.0, "duration_sec": 105.0, "media_files": ["combined.mp4"], "summary_section_id": "s15-l3", "replay_section_id": "s15-l2", "summary_first_block_id": null, "replay_first_block_id": "s15-l2-b0001", "section_ids": ["s15-l3", "s15-l2"]}, {"segment_id": "s16", "segment_number": "seg17", "title": "提肛肌", "group": "", "group_label": "", "source_order": 16, "media_file": "combined.mp4", "start_sec": 1110.0, "end_sec": 1215.0, "duration_sec": 105.0, "media_files": ["combined.mp4"], "summary_section_id": "s16-l3", "replay_section_id": "s16-l2", "summary_first_block_id": null, "replay_first_block_id": "s16-l2-b0001", "section_ids": ["s16-l3", "s16-l2"]}, {"segment_id": "s17", "segment_number": "seg18", "title": "陰部神經周邊分支個別阻斷", "group": "", "group_label": "", "source_order": 17, "media_file": "combined.mp4", "start_sec": 1221.0, "end_sec": 1335.0, "duration_sec": 165.0, "media_files": ["combined.mp4"], "summary_section_id": "s17-l3", "replay_section_id": "s17-l2", "summary_first_block_id": "s17-l3-b0001", "replay_first_block_id": "s17-l2-b0001", "section_ids": ["s17-l3", "s17-l2"]}, {"segment_id": "s18", "segment_number": "seg19", "title": "PFCN與坐骨神經、陰部神經背側支的鑑別", "group": "", "group_label": "", "source_order": 18, "media_file": "combined.mp4", "start_sec": 1290.0, "end_sec": 1485.0, "duration_sec": 195.0, "media_files": ["combined.mp4"], "summary_section_id": "s18-l3", "replay_section_id": "s18-l2", "summary_first_block_id": null, "replay_first_block_id": "s18-l2-b0001", "section_ids": ["s18-l3", "s18-l2"]}], "note_blocks": [{"block_id": "s19-l3-b0001", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 0.0, "end_sec": 0.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 00:00 掃描前先固定一個地標（如PSIS），迷航時隨時可回到起點重新定位。", "section_kind": "summary_note", "source_order": 1}, {"block_id": "s19-l3-b0002", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 577.0, "end_sec": 608.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 09:37 尋找坐骨神經最快最準的方法：先找坐骨棘，其上方即為上孖肌，再更淺層就是坐骨神經——不論解剖變異都適用。", "section_kind": "summary_note", "source_order": 2}, {"block_id": "s19-l3-b0003", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 344.0, "end_sec": 344.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 05:44 病人主訴疼痛偏內側時，注射目標應是梨狀肌起始點（薦骨前緣），而非肌腹或大轉子端的肌腱附著處。", "section_kind": "summary_note", "source_order": 3}, {"block_id": "s19-l3-b0004", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 740.0, "end_sec": 871.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 12:20 下孖肌區域疼痛但無麻刺感時，應懷疑髖臼後側盂唇病灶，而非坐骨神經問題。", "section_kind": "summary_note", "source_order": 4}, {"block_id": "s19-l3-b0005", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 899.0, "end_sec": 946.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 14:59 薦棘/薦結節韌帶記憶口訣：坐骨棘＋薦骨都是「S」→ 薦棘韌帶（SS）；薦骨到坐骨結節 → 薦結節韌帶（ST）。", "section_kind": "summary_note", "source_order": 5}, {"block_id": "s19-l3-b0006", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 1100.0, "end_sec": 1114.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 18:20 尾骨肌極薄、深部即為腸道，非熟練操作者不應嘗試在此注射。", "section_kind": "summary_note", "source_order": 6}, {"block_id": "s19-l3-b0007", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 1207.0, "end_sec": 1318.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 20:07 陰部神經三分支（背側/下直腸/會陰）依症狀確切分布位置個別阻斷，而非一律灌注主幹——這是「打得漂亮但病人反應不好」的常見原因。", "section_kind": "summary_note", "source_order": 7}, {"block_id": "s19-l3-b0008", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 1318.0, "end_sec": 1318.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 21:58 以坐骨棘尖端夾角點鑑別PFCN（角外側）與陰部神經背側支（角內側）。", "section_kind": "summary_note", "source_order": 8}, {"block_id": "s19-l3-b0009", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 0.0, "end_sec": 63.0, "time_source": "precise", "inherited_from_block_id": null, "text": "PSIS地標與臀大中小肌 ▶ V1 00:00：以PSIS為起點，依序辨識臀大、中、小肌三層。", "section_kind": "summary_note", "source_order": 9}, {"block_id": "s19-l3-b0010", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 63.0, "end_sec": 118.0, "time_source": "precise", "inherited_from_block_id": null, "text": "臀上動脈與神經 ▶ V1 01:03：都卜勒定位臀上動脈，其淺層即為臀上神經；示範水擴術+激痛點注射技巧。", "section_kind": "summary_note", "source_order": 10}, {"block_id": "s19-l3-b0011", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 118.0, "end_sec": 217.0, "time_source": "precise", "inherited_from_block_id": null, "text": "上臀皮神經（題外話） ▶ V1 01:58：T12–L2/L3斜走神經，需配合探頭旋轉才找得到，屬另一議題。", "section_kind": "summary_note", "source_order": 11}, {"block_id": "s19-l3-b0012", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 217.0, "end_sec": 246.0, "time_source": "precise", "inherited_from_block_id": null, "text": "坐骨大切跡 ▶ V1 03:37：作為找梨狀肌的前置骨性地標。", "section_kind": "summary_note", "source_order": 12}, {"block_id": "s19-l3-b0013", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 246.0, "end_sec": 344.0, "time_source": "precise", "inherited_from_block_id": null, "text": "梨狀肌與肌腱 ▶ V1 04:06：從肌腹追蹤到接大轉子的肌腱端。", "section_kind": "summary_note", "source_order": 13}, {"block_id": "s19-l3-b0014", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 344.0, "end_sec": 465.0, "time_source": "precise", "inherited_from_block_id": null, "text": "梨狀肌起始點注射 ▶ V1 05:44：處理內側疼痛的關鍵注射目標與技巧。", "section_kind": "summary_note", "source_order": 14}, {"block_id": "s19-l3-b0015", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 465.0, "end_sec": 533.0, "time_source": "precise", "inherited_from_block_id": null, "text": "臀下動脈與陰部神經血管束 ▶ V1 07:45：辨識臀下動脈與坐骨/股後皮/臀下神經共同的血管神經叢，示範薦神經叢注射。", "section_kind": "summary_note", "source_order": 15}, {"block_id": "s19-l3-b0016", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 533.0, "end_sec": 577.0, "time_source": "precise", "inherited_from_block_id": null, "text": "坐骨神經最佳定位法 ▶ V1 08:53：坐骨棘+上孖肌是最可靠的定位地標。", "section_kind": "summary_note", "source_order": 16}, {"block_id": "s19-l3-b0017", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 608.0, "end_sec": 653.0, "time_source": "precise", "inherited_from_block_id": null, "text": "閉孔內肌肌腱（Waterfall徵象） ▶ V1 10:08：特徵性瀑布狀肌腱影像，向遠端接續下孖肌。", "section_kind": "summary_note", "source_order": 17}, {"block_id": "s19-l3-b0018", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 653.0, "end_sec": 723.0, "time_source": "precise", "inherited_from_block_id": null, "text": "股方肌與坐骨股骨間隙 ▶ V1 10:53：辨識QF與坐骨股骨間隙撞擊症候群的解剖構造。", "section_kind": "summary_note", "source_order": 18}, {"block_id": "s19-l3-b0019", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 723.0, "end_sec": 740.0, "time_source": "precise", "inherited_from_block_id": null, "text": "髖臼後側盂唇評估 ▶ V1 12:03：高回音三角形正常影像、動態測試分辨部分與全層撕裂，以及外側進針技巧。", "section_kind": "summary_note", "source_order": 19}, {"block_id": "s19-l3-b0020", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 871.0, "end_sec": 884.0, "time_source": "precise", "inherited_from_block_id": null, "text": "銜接：髖關節前方注射（第一段影片結束） ▶ V1 14:31：話題轉向前方注射，第一段錄影檔案在此切點結束。", "section_kind": "summary_note", "source_order": 20}, {"block_id": "s19-l3-b0021", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 884.0, "end_sec": 899.0, "time_source": "precise", "inherited_from_block_id": null, "text": "薦棘韌帶與薦結節韌帶 ▶ V1 14:44：SS/ST韌帶辨識與記憶口訣（第二段錄影開始）。", "section_kind": "summary_note", "source_order": 21}, {"block_id": "s19-l3-b0022", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 946.0, "end_sec": 1058.0, "time_source": "precise", "inherited_from_block_id": null, "text": "陰部神經與陰部內動脈（Alcock管入路） ▶ V1 15:46：陰部神經主幹阻斷技巧與血流吸收限制。", "section_kind": "summary_note", "source_order": 22}, {"block_id": "s19-l3-b0023", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 1058.0, "end_sec": 1100.0, "time_source": "precise", "inherited_from_block_id": null, "text": "尾骨肌 ▶ V1 17:38：薄層肌肉地標，強調非熟練者不應注射的安全警示。", "section_kind": "summary_note", "source_order": 23}, {"block_id": "s19-l3-b0024", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 1114.0, "end_sec": 1185.0, "time_source": "precise", "inherited_from_block_id": null, "text": "提肛肌 ▶ V1 18:34：三部分肌肉組成，作為神經血管束的安全深度屏障。", "section_kind": "summary_note", "source_order": 24}, {"block_id": "s19-l3-b0025", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 1185.0, "end_sec": 1207.0, "time_source": "precise", "inherited_from_block_id": null, "text": "陰部神經周邊分支個別阻斷 ▶ V1 19:45：依症狀分布（生殖器/肛門/會陰）選擇背側支、下直腸支或會陰支個別阻斷。", "section_kind": "summary_note", "source_order": 25}, {"block_id": "s19-l3-b0026", "section_id": "s19-l3", "chapter_id": "s19-l3", "segment_id": "s19", "media_file": "combined.mp4", "start_sec": 1318.0, "end_sec": 1363.0, "time_source": "precise", "inherited_from_block_id": null, "text": "PFCN與坐骨神經、陰部神經背側支的鑑別（收尾） ▶ V1 21:58：坐骨棘夾角點鑑別法，PFCN近端匯入薦神經叢、遠端止於股二頭肌聯合肌腱前層；教學示範結束。", "section_kind": "summary_note", "source_order": 26}, {"block_id": "s1-l2-b0001", "section_id": "s1-l2", "chapter_id": "s1-l2", "segment_id": "s1", "media_file": "combined.mp4", "start_sec": 0.0, "end_sec": 30.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 00:00 我的習慣都是每一個地方我都會找一個風鈴的mark 當作標定,我只要一迷航我就回來 這樣子,所以這怎麼辦呢?所以你去看喔 第一個我先找到PSIS Positive Superior Spine 那你會覺得說,欸?這真的嗎? 你把探頭往下,外側下方往下移動移動移動移動 你會發現,欸?這是臀大肌 你怎麼知道是臀大肌? 往上,往上,臀大肌會消失掉 往上消失掉", "section_kind": "transcript_index", "source_order": 1}, {"block_id": "s1-l2-b0002", "section_id": "s1-l2", "chapter_id": "s1-l2", "segment_id": "s1", "media_file": "combined.mp4", "start_sec": 30.0, "end_sec": 75.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 00:30 臀小肌也不見了 所以這個時候就只剩下臀中肌跟上面 這個是脂肪層 那個不是那個肌肉 那個是脂肪層 focus 往上 然後調前 然後拉下 你看喔 這是脂肪 往下走 往下下下下下 這個 muscle 出現了 所以這個是脂肪層 這是大中小 所以就是這樣 好,那當我們已經看到這個之後呢,基本上大中小看到之後,我們可以開個Doublet Mode", "section_kind": "transcript_index", "source_order": 2}, {"block_id": "s2-l2-b0001", "section_id": "s2-l2", "chapter_id": "s2-l2", "segment_id": "s2", "media_file": "combined.mp4", "start_sec": 60.0, "end_sec": 90.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 01:00 繼續看到這邊會有血流,所以這個就是Sapir-Gluteus Artery 當我們確定Sapir-Gluteus Artery之後呢,基本上我們把探頭繼續往下,往下 你就可以找到這個就是Sapir-Gluteus Nerve,它會在Artery的淺層,應該說背側啦,背側淺層的位置 那這邊的用法就是說 然後我今天各位可能常用的就是 我今天在這邊做dry needle", "section_kind": "transcript_index", "source_order": 1}, {"block_id": "s2-l2-b0002", "section_id": "s2-l2", "chapter_id": "s2-l2", "segment_id": "s2", "media_file": "combined.mp4", "start_sec": 90.0, "end_sec": 135.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 01:30 不管有沒有加藥 做dry needle去做所謂的trigger point injection 這樣子大中小 但是我個人習慣是我會先衝進來 先做subject gluteal nerve hydrodiscretion 先給它泡一點點水之後 我會再退針 再個別去誘發它的twitch 這樣子個別打下去 所以這樣效果會更好一點點 那你想說 好那我知道了 這是Sapire,Glute,Artery跟Nerve", "section_kind": "transcript_index", "source_order": 2}, {"block_id": "s3-l2-b0001", "section_id": "s3-l2", "chapter_id": "s3-l2", "segment_id": "s3", "media_file": "combined.mp4", "start_sec": 90.0, "end_sec": 120.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 01:30 然後但是如果我今天再往上", "section_kind": "transcript_index", "source_order": 1}, {"block_id": "s3-l2-b0002", "section_id": "s3-l2", "chapter_id": "s3-l2", "segment_id": "s3", "media_file": "combined.mp4", "start_sec": 120.0, "end_sec": 150.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 02:00 往上 臀小不見了 臀大也不見了 只剩臀中 那再過來更往上更往上 這個時候我們把它探頭調淺 然後Focus Frequency調高 好然後再往上 再往上 所以你覺得我現在在找什麼 Sapira Kriyayana 上屯神經 那因為上屯神經我們上課真的沒有講", "section_kind": "transcript_index", "source_order": 2}, {"block_id": "s3-l2-b0003", "section_id": "s3-l2", "chapter_id": "s3-l2", "segment_id": "s3", "media_file": "combined.mp4", "start_sec": 150.0, "end_sec": 180.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 02:30 因為它不屬於Deep Gautam Syndrome 它是另一個議題 那你想說 那為什麼我要這樣找 你去再看一次 我們本來是擺這樣子 為什麼我上面 你去看我探頭 不要看螢幕 你看我探頭 我這樣往上找上屯神經的時候 你看我是這樣子追上來 為什麼 最後變這樣子 因為上臀神經走法是這樣子 它是從T12到L2 有人甚至是L3以下", "section_kind": "transcript_index", "source_order": 3}, {"block_id": "s3-l2-b0004", "section_id": "s3-l2", "chapter_id": "s3-l2", "segment_id": "s3", "media_file": "combined.mp4", "start_sec": 180.0, "end_sec": 210.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 03:00 它是斜走的 所以如果你今天這樣子的話 你會跟它平行 所以你會找不到 所以一般我們就是 上面叫轉rotation 這樣子 然後上去這樣推 你才能找到 它的三個branch的短軸 所以這個是特別是 你遇到fail back syndrome的時候 精準的時候上臀神經要特別去找他這樣子好不好 這是題外話 好 那這個你已經我們已經確定這邊的那個大中小三個肌肉之後 再過來下一個 我們就會開始往下看 所以你看喔", "section_kind": "transcript_index", "source_order": 4}, {"block_id": "s3-l2-b0005", "section_id": "s3-l2", "chapter_id": "s3-l2", "segment_id": "s3", "media_file": "combined.mp4", "start_sec": 210.0, "end_sec": 255.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 03:30 一樣的臀大臀中臀小肌 然後再穩穩的往下往下往下好", "section_kind": "transcript_index", "source_order": 5}, {"block_id": "s4-l2-b0001", "section_id": "s4-l2", "chapter_id": "s4-l2", "segment_id": "s4", "media_file": "combined.mp4", "start_sec": 210.0, "end_sec": 240.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 03:30 你看這邊好像樣子不太一樣 所以我們先調身 調身調身 Focus往下 然後再調低,然後再調前一點點,調過頭 好,我們再做一次,你看喔,這是E臉 然後這邊,ㄟ,一個凹槽 所以這個就是有名的Great Sacritic Notch", "section_kind": "transcript_index", "source_order": 1}, {"block_id": "s4-l2-b0002", "section_id": "s4-l2", "chapter_id": "s4-l2", "segment_id": "s4", "media_file": "combined.mp4", "start_sec": 240.0, "end_sec": 285.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 04:00 弱骨大切肌,有人叫Great Sacritic Forment", "section_kind": "transcript_index", "source_order": 2}, {"block_id": "s5-l2-b0001", "section_id": "s5-l2", "chapter_id": "s5-l2", "segment_id": "s5", "media_file": "combined.mp4", "start_sec": 240.0, "end_sec": 270.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 04:00 好,那這次怎麼辦? 既然我們大概有心理隱約知道說 這個地方應該是Performance Muscle要出來了 所以這時候你要怎麼去做檢查? 他建议就是说你要先往内往内让撒孔出来 往内然后再rotation 有没有 这个时候由内上到外下你的performing muscle就会很清楚 这个时候你就是顺着他顺他有没有", "section_kind": "transcript_index", "source_order": 1}, {"block_id": "s5-l2-b0002", "section_id": "s5-l2", "chapter_id": "s5-l2", "segment_id": "s5", "media_file": "combined.mp4", "start_sec": 270.0, "end_sec": 300.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 04:30 这个就是performing muscle 你的缩状型的离状肌 然后再继续往下他很斜喔 你就可以做出他的tendon 在这个地方 所以這個是他的Tendon 接到他的 骨骨大專指 所以這個是Periformis Muscle Muscle Tendon Junction Periformis Tendon 接到 那個 Greater Trotient", "section_kind": "transcript_index", "source_order": 2}, {"block_id": "s5-l2-b0003", "section_id": "s5-l2", "chapter_id": "s5-l2", "segment_id": "s5", "media_file": "combined.mp4", "start_sec": 300.0, "end_sec": 330.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 05:00 所以這個是怎麼去做Periformis Muscle 一路到Tendon的地方 我再重做一次 等 調亮 找到Greater Trotient Nudge 拉近內側 往遠端一點點然後在rotation做出Performance muscle 然後再過來 斜外往下 做出Tendon 所以這是Muscle 這個是很小的Tendon", "section_kind": "transcript_index", "source_order": 3}, {"block_id": "s5-l2-b0004", "section_id": "s5-l2", "chapter_id": "s5-l2", "segment_id": "s5", "media_file": "combined.mp4", "start_sec": 330.0, "end_sec": 375.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 05:30 就這樣子 OK", "section_kind": "transcript_index", "source_order": 4}, {"block_id": "s6-l2-b0001", "section_id": "s6-l2", "chapter_id": "s6-l2", "segment_id": "s6", "media_file": "combined.mp4", "start_sec": 330.0, "end_sec": 360.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 05:30 那你想說好啦 那我既然已經知道這是Performance muscle Tendon 那我今天拉回來 拉回來 那如果今天這個Case跟我講說 我今天不是在正中間這邊疼痛 而是在更內側 什麼意思 也就是說我們今天會先問病人說 你到底是哪個地方痛 那如果他不能很肯定的時候 我們就會幫他病人做重壓 就會幫病人說 你是覺得是這邊痛", "section_kind": "transcript_index", "source_order": 1}, {"block_id": "s6-l2-b0002", "section_id": "s6-l2", "chapter_id": "s6-l2", "segment_id": "s6", "media_file": "combined.mp4", "start_sec": 360.0, "end_sec": 390.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 06:00 還是這邊痛 還是偏外側痛 如果今天他是很內側這個地方疼痛的時候 很不幸的你要打的是譬如Fomins的Orange 它的起始點的位置 那所以起始點你要怎麼找 一樣 我今天找到Performing muscle之後呢 那時候你去看喔 你們看我的探頭就好 我要怎麼做出我的orange 這個時候我的探頭的內側緣這邊", "section_kind": "transcript_index", "source_order": 2}, {"block_id": "s6-l2-b0003", "section_id": "s6-l2", "chapter_id": "s6-l2", "segment_id": "s6", "media_file": "combined.mp4", "start_sec": 390.0, "end_sec": 420.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 06:30 我要往下轉 往下轉 這裡 這個就是它的orange 它會在你的sacrum的前緣 所以你現在的目標就是要讓sacrum不見 所以我們再重做一次 你看喔 我今天 我今天先讓這個縮狀 沒事 先讓它放鬆一下 我先讓Periformis muscle出現 所以這個時候我內側圓", "section_kind": "transcript_index", "source_order": 3}, {"block_id": "s6-l2-b0004", "section_id": "s6-l2", "chapter_id": "s6-l2", "segment_id": "s6", "media_file": "combined.mp4", "start_sec": 420.0, "end_sec": 450.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 07:00 內側的探頭 要rotation到圓端 有沒有 這裡 這個就是它接到你的sacrum底下的位置 所以這個是orange的位置 所以你要打針就是從這邊打到這個地方來 處理它的 所以它的疼痛就會在很內側 但是而且很深層的位置 那這邊注射 那你以這個case來講 supreme glute artery在這個地方 所以你可以選擇out of plane 或是in plane", "section_kind": "transcript_index", "source_order": 4}, {"block_id": "s6-l2-b0005", "section_id": "s6-l2", "chapter_id": "s6-l2", "segment_id": "s6", "media_file": "combined.mp4", "start_sec": 450.0, "end_sec": 495.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 07:30 從內往外打到這裡都OK 所以這個是處理orange of the piriformis muscle 我再重做一次,你看哦,muscle building 那你可以這樣子 有沒有,這個地方 就是它的orange的位置", "section_kind": "transcript_index", "source_order": 5}, {"block_id": "s7-l2-b0001", "section_id": "s7-l2", "chapter_id": "s7-l2", "segment_id": "s7", "media_file": "combined.mp4", "start_sec": 450.0, "end_sec": 480.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 07:30 那再過來一下,扣除掉這個 之外呢,還有沒有什麼問題呢,你去看一下 底下這裡 這個地方你看,這邊黑黑的這個是誰啊 這個 inferior glute artery 上面是 superior glute artery 好,所以在它旁邊", "section_kind": "transcript_index", "source_order": 1}, {"block_id": "s7-l2-b0002", "section_id": "s7-l2", "chapter_id": "s7-l2", "segment_id": "s7", "media_file": "combined.mp4", "start_sec": 480.0, "end_sec": 510.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 08:00 會是誰,succulent plexus succulent plexus 包含誰,cytine nerve PFCM 跟 Inferior Gluteal Nerve 四個神經 所以呢今天如果我可以的話 我今天會打 比如說我要打針的時候 如果有病人他會覺得說 這邊除了疼痛之外 又伴隨一些神經血的症狀的時候 我會選擇從內往外 除了治療那個Performance Muscle之後 我會試著讓我的針 稍微穿破底下的Epimycin 就是說讓針有點離", "section_kind": "transcript_index", "source_order": 2}, {"block_id": "s7-l2-b0003", "section_id": "s7-l2", "chapter_id": "s7-l2", "segment_id": "s7", "media_file": "combined.mp4", "start_sec": 510.0, "end_sec": 555.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 08:30 一點點的離開Performance Muscle之後 然後推藥 讓水直接泡在你的sacroflexus旁邊 所以那個針必須要很慢的 這邊就要差不多停 然後一穿破 然後就是開始推水 如果你發現水是能沿著這邊流的時候 基本上你位置就是對的 這樣子好不好 所以這個是打sacroflexus 好", "section_kind": "transcript_index", "source_order": 3}, {"block_id": "s8-l2-b0001", "section_id": "s8-l2", "chapter_id": "s8-l2", "segment_id": "s8", "media_file": "combined.mp4", "start_sec": 510.0, "end_sec": 540.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 08:30 那你想說 嗯好 那我今天如果我覺得是說 假設這個病人 譬如說這邊到處都是血管", "section_kind": "transcript_index", "source_order": 1}, {"block_id": "s8-l2-b0002", "section_id": "s8-l2", "chapter_id": "s8-l2", "segment_id": "s8", "media_file": "combined.mp4", "start_sec": 540.0, "end_sec": 570.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 09:00 你覺得說我真的不好打 或是他譬如像我們 有的是Performance Muscle萎縮掉了 我覺得沒有把握會不會傷到底下的鮑 這個時候你就不要 不要在這邊打 你就是再繼續往下走 再繼續往下走 所以你看喔 當我繼續往下走的時候 有人就穿出來了 慢慢的慢慢的就出來 慢慢的出來 沒錯 這個就是Sciatic Nerve 第一個衝出來的會是坐骨神經 所以呢", "section_kind": "transcript_index", "source_order": 2}, {"block_id": "s8-l2-b0003", "section_id": "s8-l2", "chapter_id": "s8-l2", "segment_id": "s8", "media_file": "combined.mp4", "start_sec": 570.0, "end_sec": 600.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 09:30 跳起來 你看喔,這個就是Scytic nerve 所以呢,意味著 這個是臨床上最好找到坐骨神經的位置 也就是說呢,當你能找到East Gear Spine 上面會找到Superior Geminus Muscle 以及更淺層的Scytic nerve 所以這個是找Scytic nerve最快最準的方式 就是找到East Gear Spine 跟Superior Geminus Muscle 你就可以找到停在上面", "section_kind": "transcript_index", "source_order": 3}, {"block_id": "s8-l2-b0004", "section_id": "s8-l2", "chapter_id": "s8-l2", "segment_id": "s8", "media_file": "combined.mp4", "start_sec": 600.0, "end_sec": 645.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 10:00 不管他有沒有變異,他都可以找得到 每個人都是在這邊 這個是Supreme Geminus Muscle 上面的Psyche Nerve", "section_kind": "transcript_index", "source_order": 4}, {"block_id": "s9-l2-b0001", "section_id": "s9-l2", "chapter_id": "s9-l2", "segment_id": "s9", "media_file": "combined.mp4", "start_sec": 600.0, "end_sec": 630.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 10:00 好了,那我已經確定是Psyche Nerve之後呢 我把探頭穩穩的再往遠端移動 往遠端移動,你會發現 這邊喔,你會發現這邊有東西掉下來的 這個我們叫做Waterfall 瀑布的樣子 所以這個就是OI Operator Intenance 那我們再穩穩的往遠端平一點點 你會發現這邊有誰啊?", "section_kind": "transcript_index", "source_order": 1}, {"block_id": "s9-l2-b0002", "section_id": "s9-l2", "chapter_id": "s9-l2", "segment_id": "s9", "media_file": "combined.mp4", "start_sec": 630.0, "end_sec": 675.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 10:30 你會發現這個是什麼東西? OI的Tendon 闢孔內肌的肌腱 它基本上會在這邊 然後在它正下方 會找到Inferior Geminus 下絕絕肌的Muscle 所以再更往下 你看喔 肌腱它的Tendon就不見了 所以現在這個全部都是Inferior Geminus Muscle", "section_kind": "transcript_index", "source_order": 2}, {"block_id": "s10-l2-b0001", "section_id": "s10-l2", "chapter_id": "s10-l2", "segment_id": "s10", "media_file": "combined.mp4", "start_sec": 630.0, "end_sec": 660.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 10:30 那你怎麼知道現在是Inferior Geminus Muscle 底下你可以看到這邊有泵 你的Femoral Head 還在這個地方", "section_kind": "transcript_index", "source_order": 1}, {"block_id": "s10-l2-b0002", "section_id": "s10-l2", "chapter_id": "s10-l2", "segment_id": "s10", "media_file": "combined.mp4", "start_sec": 660.0, "end_sec": 690.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 11:00 所以基本上只要底下能讓你找到骨骨頭 後側的骨骨頭 就意味著上面這一段還是所謂的Inferior Geminus Muscle 如果你今天 我們調深一點點 Focus 低一點點 好 你看喔 下面有Bomb 所以這是Inferior Geminus Muscle 如果我推得非常非常的遠 下面Bomb不見了 打開了 所以這個時候呢 基本上 上面是QF", "section_kind": "transcript_index", "source_order": 2}, {"block_id": "s10-l2-b0003", "section_id": "s10-l2", "chapter_id": "s10-l2", "segment_id": "s10", "media_file": "combined.mp4", "start_sec": 690.0, "end_sec": 720.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 11:30 鼻孔 鼓方肌 下面是鼻孔外肌 所以你這個位置就會落在所謂的 East Keel Femoral Space 所以如果這邊 坐骨神經被夾到 我們就叫East Keel Femoral Space Syndrome 那你打針的時候 假設這邊有問題喔 你可以選擇從外往內 打這個Sykinner 然後旁邊就會是Control Tendon 骨二頭肌的Control Tendon會在他旁邊 這樣子", "section_kind": "transcript_index", "source_order": 3}, {"block_id": "s10-l2-b0004", "section_id": "s10-l2", "chapter_id": "s10-l2", "segment_id": "s10", "media_file": "combined.mp4", "start_sec": 720.0, "end_sec": 765.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 12:00 好 那這個我們剛剛已經講過了", "section_kind": "transcript_index", "source_order": 4}, {"block_id": "s11-l2-b0001", "section_id": "s11-l2", "chapter_id": "s11-l2", "segment_id": "s11", "media_file": "combined.mp4", "start_sec": 720.0, "end_sec": 750.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 12:00 所以我們剛剛說過 我們已經確定好這個是Inferior Geminus Muscle 所以我們課堂上有提過 後面還有誰要去注意他 如果這個病人在這裡會痛 可是他居然沒有麻刺的問題 除了上面肌肉之外 大概就不太那麼像坐骨神經 所以基本上你反而要去注意會不會反而是 Hip Labyrinth, Posterior Side Hip Labyrinth 有問題 所以基本上你會看到這個是 Posterior Hip Labyrinth", "section_kind": "transcript_index", "source_order": 1}, {"block_id": "s11-l2-b0002", "section_id": "s11-l2", "chapter_id": "s11-l2", "segment_id": "s11", "media_file": "combined.mp4", "start_sec": 750.0, "end_sec": 780.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 12:30 那你想說,我要怎麼知道它真的有問題呢? 它很直觀,也就是說你現在看到這個是 Hyper-Accord 白色的三角形,如果你看到有一點點 我們叫做Hyper-Accord Crave 在裡面 就是一些裂縫,黑的裂縫在裡面,它可能有問題 那如果今天你覺得說,我不能很肯定耶 那我可以做動態的dynamic 所以基本上我可以擺在這個角度之後 比較標準的是我要抓住他的腳 甚至請另一個人抓住他的腳", "section_kind": "transcript_index", "source_order": 2}, {"block_id": "s11-l2-b0003", "section_id": "s11-l2", "chapter_id": "s11-l2", "segment_id": "s11", "media_file": "combined.mp4", "start_sec": 780.0, "end_sec": 810.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 13:00 做internal跟external rotation 但是因為這個你會發現超難做 基本上就算你有幫手你也做不到 所以基本上我一般習慣會讓他做fraction knee 擺好之後再做external 跟輕輕的不要太猛 在這樣子,external跟internal 去看有沒有水灌進你的labyrinth 白色在流行裡面,如果有,但是沒有灌穿,那是partial 如果你發現那個水已經灌穿了那個labyrinth", "section_kind": "transcript_index", "source_order": 3}, {"block_id": "s11-l2-b0004", "section_id": "s11-l2", "chapter_id": "s11-l2", "segment_id": "s11", "media_file": "combined.mp4", "start_sec": 810.0, "end_sec": 840.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 13:30 而且到上面去了,基本上就是full了 full of injury了 所以這個是去看labyrinth有沒有問題 好,那基本上好,那我假設舉例 假設這個case是labyrinth真的這邊破了一個洞 那你想說好吧,那我今天要打針了 打針 從內側打好不好 會正中撒基納 從外側打如何呢 比較會被蹦擋住 好像角度不太優 所以怎麼辦 所以這個時候 你們再看一下我的探頭 要怎麼打針", "section_kind": "transcript_index", "source_order": 4}, {"block_id": "s11-l2-b0005", "section_id": "s11-l2", "chapter_id": "s11-l2", "segment_id": "s11", "media_file": "combined.mp4", "start_sec": 840.0, "end_sec": 885.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 14:00 你的外側探頭要往頭端移動 有沒有 你看 再看一下螢幕上看 你看 我當外側往頭端移動的時候 鼓鼓大聲的就不見了 所以這個時候你就有機會可以這樣打進來 那唯一現在你就是要去算長度了 所以我們就是拉進來 拉進來 拉進來 拉進來 拉進來 好 拉到這邊 然後在頭外側 往頭端轉 這裡 所以基本上你這樣子 大概就可以打得到他的Labyrinth", "section_kind": "transcript_index", "source_order": 5}, {"block_id": "s11-l3-b0001", "section_id": "s11-l3", "chapter_id": "s11-l3", "segment_id": "s11", "media_file": "combined.mp4", "start_sec": 840.0, "end_sec": 885.0, "time_source": "precise", "inherited_from_block_id": null, "text": "解法 ▶ V1 14:00：外側探頭往頭端（cephalad）移動，當大轉子骨頭影像消失，即可找到進針空間；接著測量進針深度，探頭頭外側再往頭端轉，即可打到盂唇位置 ▶ V1 14:22。", "section_kind": "summary_note", "source_order": 1}, {"block_id": "s12-l2-b0001", "section_id": "s12-l2", "chapter_id": "s12-l2", "segment_id": "s12", "media_file": "combined.mp4", "start_sec": 870.0, "end_sec": 915.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 14:30 那再來一個問題就是說 我今天如果我假設 我今天我們本來是說我們Hip Joint 我們從前面打 如果你遇到是他真的很不幸 不是那個 artery 整個 就是一端重壓的意思", "section_kind": "transcript_index", "source_order": 1}, {"block_id": "s13-l2-b0001", "section_id": "s13-l2", "chapter_id": "s13-l2", "segment_id": "s13", "media_file": "combined.mp4", "start_sec": 870.0, "end_sec": 900.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 14:30 所以這個時候你就會看到非常漂亮的 sacrospinous ligament 跟sacrotubular ligament 那你想說 那個臨床解剖學很容易背不起來 到底誰是SS 誰是ST 你就想 這個叫做ischia spine", "section_kind": "transcript_index", "source_order": 1}, {"block_id": "s13-l2-b0002", "section_id": "s13-l2", "chapter_id": "s13-l2", "segment_id": "s13", "media_file": "combined.mp4", "start_sec": 900.0, "end_sec": 930.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 15:00 這邊是sacrum 對不對 所以既然是S ischia spine 接sacrum 所以這個叫做S跟S 所以我們叫sacrospinous ligament 上面是從succulent一路往斜走 切到底下的esquire tuberosity 所以我們叫做succulent tuberous ligament 所以這個是SS是succulent spinous ligament 是long SSVU是長軸 這個相對來講這個擺位因為它是這樣斜走的 所以你現在擺著這樣子是optic view", "section_kind": "transcript_index", "source_order": 2}, {"block_id": "s13-l2-b0003", "section_id": "s13-l2", "chapter_id": "s13-l2", "segment_id": "s13", "media_file": "combined.mp4", "start_sec": 930.0, "end_sec": 975.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 15:30 所以這個是它的短軸 中間然後在這個兩個韌帶之間 中間黑黑的這個不是水喔 這個是脂肪電 它會有一堆脂肪存在這個地方 所以在這個地方 這一個亮亮的這一個 就會是所謂的putin donor", "section_kind": "transcript_index", "source_order": 3}, {"block_id": "s14-l2-b0001", "section_id": "s14-l2", "chapter_id": "s14-l2", "segment_id": "s14", "media_file": "combined.mp4", "start_sec": 930.0, "end_sec": 960.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 15:30 陰部神經 然後你就可以開血流去找 internal putin artery 通常會在它的外側緣 所以我們再重做一次 各位再看一次喔 所以你看喔", "section_kind": "transcript_index", "source_order": 1}, {"block_id": "s14-l2-b0002", "section_id": "s14-l2", "chapter_id": "s14-l2", "segment_id": "s14", "media_file": "combined.mp4", "start_sec": 960.0, "end_sec": 990.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 16:00 我先找到ischia spine 找到sagatina 往內 然後呢succutibus ligament FET 所以這個時候我們就開duplen mode 先關掉一下 先把它做好 再來一次", "section_kind": "transcript_index", "source_order": 2}, {"block_id": "s14-l2-b0003", "section_id": "s14-l2", "chapter_id": "s14-l2", "segment_id": "s14", "media_file": "combined.mp4", "start_sec": 990.0, "end_sec": 1020.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 16:30 然後拉近 然後這個時候呢,我們就開Doubler Mode 去找我們的Internal Putendal Artery在這裡 剛跳的是在這個地方 所以基本上Secting Nerve在這個地方 所以我們就可以全擇從內往外 讓你的Needle Tip穿過你的Sacral Tube Ligament 然後就讓你的針停在Bait裡面 用水炎法去做Putendal Nerve", "section_kind": "transcript_index", "source_order": 3}, {"block_id": "s14-l2-b0004", "section_id": "s14-l2", "chapter_id": "s14-l2", "segment_id": "s14", "media_file": "combined.mp4", "start_sec": 1020.0, "end_sec": 1050.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 17:00 整個Mind Trunk的Nerve Block 但是你要小心 也不要小心 你要有知道 因为既然这边沸腾很多 所以意味着你的药 很容易会被吸收掉 所以有的时候 效果会不太优 所以这个是你要知道的事情 我们再重做一次 好", "section_kind": "transcript_index", "source_order": 4}, {"block_id": "s14-l2-b0005", "section_id": "s14-l2", "chapter_id": "s14-l2", "segment_id": "s14", "media_file": "combined.mp4", "start_sec": 1050.0, "end_sec": 1095.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 17:30 那你看 我們既然Ligament都做出來了 Pedal Numb也做出來了 欸 你想說下面這個勒 下面這是誰", "section_kind": "transcript_index", "source_order": 5}, {"block_id": "s15-l2-b0001", "section_id": "s15-l2", "chapter_id": "s15-l2", "segment_id": "s15", "media_file": "combined.mp4", "start_sec": 1050.0, "end_sec": 1080.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 17:30 Costitial Muscle Costitial Muscle其實很薄 它非常非常薄 它近乎有點約略和你的Sacral Spinous Ligament 有點約略平行 但是它是有角度的 它不是完全平行 它是接近平行 那它通常是外後內薄 為什麼 它是從外面Ischia Spine的下緣 往內繞著接到你的S3到Costis", "section_kind": "transcript_index", "source_order": 1}, {"block_id": "s15-l2-b0002", "section_id": "s15-l2", "chapter_id": "s15-l2", "segment_id": "s15", "media_file": "combined.mp4", "start_sec": 1080.0, "end_sec": 1110.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 18:00 尾端的前面內側緣 所以他在他的正中間的時候 會變比較變成是Tendon 所以這邊的話 假設萬一這個病人他是沒有麻症狀 但他這一代都很痛 一般我就會選擇打ST ligament SS ligament 然後再破穿一點點打在這個地方 打一下他的costal joint muscle 但是如果對各位來講 如果真的不是那麼熟 或是你有沒有訓不好 或真的這個病人比較胖 影像不太清楚的時候千萬不要打", "section_kind": "transcript_index", "source_order": 2}, {"block_id": "s15-l2-b0003", "section_id": "s15-l2", "chapter_id": "s15-l2", "segment_id": "s15", "media_file": "combined.mp4", "start_sec": 1110.0, "end_sec": 1155.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 18:30 為什麼?因為它很薄 底下這邊其實就是腸道了", "section_kind": "transcript_index", "source_order": 3}, {"block_id": "s16-l2-b0001", "section_id": "s16-l2", "chapter_id": "s16-l2", "segment_id": "s16", "media_file": "combined.mp4", "start_sec": 1110.0, "end_sec": 1140.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 18:30 所以你若不熟就千萬就不要打 相對來講會很危險這樣子 所以只是讓大家知道有這個東西在 好,那你想說那為什麼 那這邊還有什麼東西可以再講呢? 還有的,你看喔 好了,你看喔,我們一樣的做出了所謂的 Subcutaneous Ligaments 跟Coccygeal Muscles 那Mint Trunk, Plutonium都沒出來了 我們再往遠端再移動", "section_kind": "transcript_index", "source_order": 1}, {"block_id": "s16-l2-b0002", "section_id": "s16-l2", "chapter_id": "s16-l2", "segment_id": "s16", "media_file": "combined.mp4", "start_sec": 1140.0, "end_sec": 1170.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 19:00 你就盯著這一個Bubble 盯著這個Hypercoil Bubble 往遠端再移動 你會發現它是很迅速的 迅速的就分出了三個Division 1 2 3 這樣衝下來 那你想說這個底下是不是誰 這個不是豹 這個其實是蠻厚的 我們叫Levitate Any Muscle 提綱肌 它有三個肌肉 那你不用使勁 它就是直接被Levitate Any Muscle 那所以豹就會被推到很底下去 所以在這邊打針相對來講比較安全一點點", "section_kind": "transcript_index", "source_order": 2}, {"block_id": "s16-l2-b0003", "section_id": "s16-l2", "chapter_id": "s16-l2", "segment_id": "s16", "media_file": "combined.mp4", "start_sec": 1170.0, "end_sec": 1215.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 19:30 除非你打得太深 所以我們再重做一次 你看喔 我們把深度也調深一點點 focus 往上 好來我們再做一次 這邊", "section_kind": "transcript_index", "source_order": 3}, {"block_id": "s17-l2-b0001", "section_id": "s17-l2", "chapter_id": "s17-l2", "segment_id": "s17", "media_file": "combined.mp4", "start_sec": 1170.0, "end_sec": 1200.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 19:30 這個是 puttano nerve 在這個地方 然後往下 在這裡 豹是到大概這個地方來 所以你看到這邊 這邊的話就所謂ACROS CONNECT 所以你看到這個上面會是有NUR", "section_kind": "transcript_index", "source_order": 1}, {"block_id": "s17-l2-b0002", "section_id": "s17-l2", "chapter_id": "s17-l2", "segment_id": "s17", "media_file": "combined.mp4", "start_sec": 1200.0, "end_sec": 1230.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 20:00 從上面這個分子出來 所以一般傳統上我們打ACROS CONNECT 我們會沿著OI的旁邊 這樣子直接這樣泡下去 理論上會有效 可是如果今天這個病人症狀非常非常的明確 是在特定位置的時候 你大概就只能個別打 什麼意思 在比較淺層這個地方的話 我們叫Dorsal Cutaneous Branch 中間會叫做Inferior Rectus 下面這個偏內側 但是更深層的位置", "section_kind": "transcript_index", "source_order": 2}, {"block_id": "s17-l2-b0003", "section_id": "s17-l2", "chapter_id": "s17-l2", "segment_id": "s17", "media_file": "combined.mp4", "start_sec": 1230.0, "end_sec": 1260.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 20:30 我們叫做所謂的Peroneal Branch 那什麼意思 也就是說呢 如果今天這個case 他跟你講說 他不是整片的 他是很極端的個別問題 譬如說他是跟你講說 像男生的話 我們這個男生的話 我們叫做Dorsal Cutaneous Branch Tool of the Penis 女生的話 他的名稱叫做 所以也就是說如果今天他是跟你講說是在這一個很隱私部位出現疼痛的時候 其他都沒有", "section_kind": "transcript_index", "source_order": 3}, {"block_id": "s17-l2-b0004", "section_id": "s17-l2", "chapter_id": "s17-l2", "segment_id": "s17", "media_file": "combined.mp4", "start_sec": 1260.0, "end_sec": 1290.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 21:00 那你搞不好考慮就是我今天真的就停在淺層就好了 不用到那麼深 他要打的是淺層的分子 如果他今天跟你講說 我今天是在肛門口附近很不舒服 那這個時候你的inferior rectus branch大概就要打 那如果今天他跟你講說他是偏向 那 annus 跟隱屍部位的中間那一段 那個會是屬於 peroneal branch 所以基本上你就要打到更深層的地方 除非他是三層都有 那就是很不幸就任命了 就是淺 中 深 三段都要打", "section_kind": "transcript_index", "source_order": 4}, {"block_id": "s17-l2-b0005", "section_id": "s17-l2", "chapter_id": "s17-l2", "segment_id": "s17", "media_file": "combined.mp4", "start_sec": 1290.0, "end_sec": 1335.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 21:30 因為他這邊已經分支出來了 所以換句話說 為什麼你有時候遇到就是 我明明打得很漂亮 可是為什麼病人反應不好 有時候你可能要仔細問一下 他到底是哪一段有這種症狀 如果是三層都有 那就在直照全部都打這樣子 如果個別哪一段就個別挑那一個Branch去打掉就適合這樣子 所以這個是Gluttonal Nerve的Peripheral Branch 我們再做我們把它調前再重做一次給各位看 Dorsal Cutaneous Branch", "section_kind": "transcript_index", "source_order": 5}, {"block_id": "s17-l3-b0001", "section_id": "s17-l3", "chapter_id": "s17-l3", "segment_id": "s17", "media_file": "combined.mp4", "start_sec": 1221.0, "end_sec": 1230.0, "time_source": "precise", "inherited_from_block_id": null, "text": "背側支（Dorsal Branch） ▶ V1 20:21：較淺層，男性稱陰莖背神經（Dorsal Nerve of Penis），女性則為對應的陰蒂背神經。若病人症狀僅侷限在生殖器隱私部位、無其他區域症狀，可能只需阻斷此淺層分支，不需深入。", "section_kind": "summary_note", "source_order": 1}, {"block_id": "s17-l3-b0002", "section_id": "s17-l3", "chapter_id": "s17-l3", "segment_id": "s17", "media_file": "combined.mp4", "start_sec": 1230.0, "end_sec": 1233.0, "time_source": "precise", "inherited_from_block_id": null, "text": "下直腸神經支（Inferior Rectal Branch） ▶ V1 20:30：位置中間偏內側。若病人主訴肛門口附近不適，應鎖定此分支。", "section_kind": "summary_note", "source_order": 2}, {"block_id": "s17-l3-b0003", "section_id": "s17-l3", "chapter_id": "s17-l3", "segment_id": "s17", "media_file": "combined.mp4", "start_sec": 1233.0, "end_sec": 1278.0, "time_source": "precise", "inherited_from_block_id": null, "text": "會陰神經支（Perineal Branch） ▶ V1 20:33：位置最深層。若疼痛位於肛門與生殖器之間的會陰部，屬此分支範圍，需打到較深層。", "section_kind": "summary_note", "source_order": 3}, {"block_id": "s18-l2-b0001", "section_id": "s18-l2", "chapter_id": "s18-l2", "segment_id": "s18", "media_file": "combined.mp4", "start_sec": 1290.0, "end_sec": 1320.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 21:30 它的鉴别方式很简单", "section_kind": "transcript_index", "source_order": 1}, {"block_id": "s18-l2-b0002", "section_id": "s18-l2", "chapter_id": "s18-l2", "segment_id": "s18", "media_file": "combined.mp4", "start_sec": 1320.0, "end_sec": 1350.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 22:00 你看到这是East Key of Spine 的尖 Angle 点 我们的Dorsal Cutaneous Branch 不会跨过 它到外侧去 所以只要从这个尖点的 外侧全部只会看到 PFCN 这个Angle端的内侧会是 第一个会碰到的最前层 是Dorsal Cutaneous Branch of the Cutaneous Nerve 也就是說你這angle side的內側緣都會是putano nerve的division", "section_kind": "transcript_index", "source_order": 2}, {"block_id": "s18-l2-b0003", "section_id": "s18-l2", "chapter_id": "s18-l2", "segment_id": "s18", "media_file": "combined.mp4", "start_sec": 1350.0, "end_sec": 1380.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 22:30 正上方偏外側的第一組就會碰到PFCN 然後這個是cytid nerve 那你想說真的嗎 這個地方那個真的是所謂的cytid nerve嗎 所以你去看喔 PFCN嗎 你看喔 我們今天做出來這個東西之後呢 這裡 在這裡 往頭端移動 這個小小的Bubble它會慢慢的沉回來 沉回來", "section_kind": "transcript_index", "source_order": 3}, {"block_id": "s18-l2-b0004", "section_id": "s18-l2", "chapter_id": "s18-l2", "segment_id": "s18", "media_file": "combined.mp4", "start_sec": 1380.0, "end_sec": 1410.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 23:00 然後呢 最後會停到你的 回到Sacral Braces裡面去 那如果我今天是往 遠端走 往遠端走 對準它 It’s hard to look at it from a distance. 有沒有 它最後會停在誰上面 Bicep Conjure Tendon的前層 然後再更往遠端走 它才會慢慢的 他才會慢慢的往他的皮下組織那邊 前程的地方去衝 所以那一個是PFCN 所以PFCN他會在大概是OI跟SG交界的地方", "section_kind": "transcript_index", "source_order": 4}, {"block_id": "s18-l2-b0005", "section_id": "s18-l2", "chapter_id": "s18-l2", "segment_id": "s18", "media_file": "combined.mp4", "start_sec": 1410.0, "end_sec": 1440.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 23:30 他就會開始穿出來 也就是說他會比Sykinner慢沒有錯 但是當你Sykinner已經從SG 已經到SG上緣的時候 他其實也快要準備要出來了 所以當你一旦OI已經很明顯的時候 基本上在他的那個轉折角的正上方 其實已經可以看得到你的PFCN 所以打針的時候可以打 但是要小心不要戳到它就對了 這樣子 所以這個是PFCN 然後Tendonerve Division", "section_kind": "transcript_index", "source_order": 5}, {"block_id": "s18-l2-b0006", "section_id": "s18-l2", "chapter_id": "s18-l2", "segment_id": "s18", "media_file": "combined.mp4", "start_sec": 1440.0, "end_sec": 1485.0, "time_source": "precise", "inherited_from_block_id": null, "text": "▶ V1 24:00 跟SciPinNerve 就這樣子 OK 好啦我們DEMO完了 這樣大家可以試試看", "section_kind": "transcript_index", "source_order": 6}], "slide_blocks": [], "jump_links": [], "package_profile": "interactive_html"};
+/* ============================================================
+   lecture-to-notes layout2 viewer
+   Sections:
+     1. data + state
+     2. helpers
+     3. video control + sequential autoplay
+     4. view state (home / segment / mode)
+     5. playback↔note sync (auto-highlight + auto-scroll)
+     6. drawer (burger)
+     7. floating video window (drag / resize / persist)
+     8. responsive tier defaults (matchMedia)
+     9. pane resizers
+    10. event bindings + init
+   ============================================================ */
+
+/* ---- 1. data + state ---- */
+const mediaRoot = TIMELINE.media_root_relative_to_html || '..';
+const mediaSrc = TIMELINE.media_src || {};
+// parts the exporter could not find on disk (exists:false) — notes and timestamps
+// stay useful, but pointing the player at them would just fail silently
+const missingMedia = new Set((TIMELINE.media_parts||[]).filter(p=>p.exists===false).map(p=>p.file));
+const blocks = [...TIMELINE.note_blocks].sort((a,b)=>a.start_sec-b.start_sec || String(a.block_id).localeCompare(String(b.block_id)));
+const segments = TIMELINE.segments || [];
+let activeSegmentId = segments[0]?.segment_id || '';
+let currentView = 'home';            // 'home' | 'segment' — gates whether sync may switch panels
+let autoScroll = true;
+let programmaticScroll = false;
+let autoFollowSuspendedUntil = 0;
+
+/* ---- 2. helpers ---- */
+function q(sel, root=document){return root.querySelector(sel)}
+function qa(sel, root=document){return [...root.querySelectorAll(sel)]}
+function mediaUrl(file){
+  if(mediaSrc[file]){const p=mediaSrc[file].split('/').map(encodeURIComponent).join('/'); return p;}
+  return mediaRoot.replace(/\/$/,'') + '/' + encodeURIComponent(file);
+}
+function fmt(t){t=Math.max(0,Math.floor(t||0)); return String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0')}
+function segmentById(id){return segments.find(s=>s.segment_id===id)}
+function segFiles(seg){return (seg && (seg.media_files || [seg.media_file]).filter(Boolean)) || []}  // R9 fallback
+
+/* ---- 3. video control + sequential autoplay ---- */
+function setVideo(file, t, autoplay=true){
+  const v=q('#player'), now=q('#now');
+  if(missingMedia.has(file)){
+    now.textContent='⚠ '+file+' @ '+fmt(t)+'（來源檔已遺失，無法播放）';
+    v.removeAttribute('src'); delete v.dataset.file; v.load();
+    return;
+  }
+  now.textContent='▶ '+file+' @ '+fmt(t);
+  if(v.dataset.file!==file){
+    v.src=mediaUrl(file); v.dataset.file=file;
+    v.addEventListener('loadedmetadata',()=>{try{v.currentTime=t}catch(e){}; if(autoplay) v.play().catch(()=>{});},{once:true});
+    v.load();
+  }else{try{v.currentTime=t}catch(e){}; if(autoplay) v.play().catch(()=>{});}
+}
+// when a clip ends, continue to the next clip of the SAME segment (R8: order from media_files only)
+function playNextClip(){
+  const v=q('#player'); const seg=segmentById(activeSegmentId); const files=segFiles(seg);
+  const i=files.indexOf(v.dataset.file);
+  if(i>=0 && i+1<files.length){
+    const nxt=files.slice(i+1).find(f=>!missingMedia.has(f));
+    if(nxt) setVideo(nxt, 0, true);
+  }
+}
+
+/* ---- 4. view state ---- */
+function setMode(mode){
+  document.body.classList.toggle('mode-summary', mode==='summary');
+  document.body.classList.toggle('mode-replay', mode==='replay');
+  qa('.modebar button').forEach(btn=>btn.classList.toggle('active', btn.dataset.mode===mode));
+}
+function showPaneSection(paneSel, sectionId, emptySel, scrollTop=false){
+  qa('.note-panel', q(paneSel)).forEach(el=>{ if(el.id!=='home') el.classList.toggle('active', el.id===sectionId); });
+  const has = Boolean(sectionId && q('#'+CSS.escape(sectionId), q(paneSel)));
+  q(emptySel).classList.toggle('active', !has);
+  if(scrollTop) q(paneSel).scrollTop = 0;
+}
+function showHome(){
+  currentView='home';
+  document.body.classList.add('home-view');
+  qa('.segment-card').forEach(el=>el.classList.remove('is-active'));
+  q('#segment-title').textContent = TIMELINE.course || '首頁';
+}
+function showSegment(segmentId, scrollTop=false){
+  const seg = segmentById(segmentId); if(!seg) return;
+  currentView='segment';
+  document.body.classList.remove('home-view');
+  activeSegmentId = segmentId;
+  qa('.segment-card').forEach(el=>el.classList.toggle('is-active', el.dataset.segmentId===segmentId));
+  showPaneSection('#summary-pane', seg.summary_section_id || '', '#summary-empty', scrollTop);
+  showPaneSection('#replay-pane', seg.replay_section_id || '', '#replay-empty', scrollTop);
+  q('#segment-title').textContent = seg.segment_number + ' — ' + seg.title;
+}
+
+/* ---- 5. playback↔note sync ---- */
+function setAutoScroll(value){
+  autoScroll = Boolean(value);
+  const button = q('#toggle-scroll');
+  const suspended = autoScroll && Date.now() < autoFollowSuspendedUntil;
+  button.textContent = suspended ? '自動捲動：暫停' : (autoScroll ? '自動捲動：開' : '自動捲動：關');
+  button.classList.toggle('active', autoScroll && !suspended);
+}
+function effectiveAutoScroll(){
+  if(!autoScroll) return false;
+  if(Date.now() < autoFollowSuspendedUntil) return false;
+  return !q('#player').paused;
+}
+function suspendAutoFollowBriefly(){
+  if(!autoScroll || q('#player').paused) return;
+  autoFollowSuspendedUntil = Date.now() + 5000;
+  setAutoScroll(true);
+  window.clearTimeout(suspendAutoFollowBriefly.timer);
+  suspendAutoFollowBriefly.timer = window.setTimeout(()=>setAutoScroll(true), 5100);
+}
+function scrollBlockInsidePane(block, paneSel){
+  const pane = q(paneSel);
+  if(!pane) return;
+  const el = q('[data-sync-block="'+CSS.escape(block.block_id)+'"]', pane);
+  if(!el) return;
+  const paneRect = pane.getBoundingClientRect();
+  const elRect = el.getBoundingClientRect();
+  const target = pane.scrollTop + (elRect.top - paneRect.top) - pane.clientHeight * 0.42;
+  programmaticScroll = true;
+  pane.scrollTo({top: Math.max(0, target), behavior: 'auto'});
+  window.setTimeout(()=>{programmaticScroll = false;}, 80);
+}
+function matchingBlocks(file,t){
+  return blocks.filter(b => b.media_file===file && Number(b.start_sec)-0.15 <= t && t < Number(b.end_sec)+0.15);
+}
+function activateForTime(file,t, doScroll=true, force=false){
+  if(!force && q('#player').paused) return;
+  // R1: in home view, reflect playback in the now-bar but NEVER switch panels back to a segment
+  if(currentView==='home'){
+    const cands = matchingBlocks(file,t);
+    if(cands.length){ const tgt=cands.find(b=>b.section_kind==='summary_note')||cands[0];
+      q('#now').textContent='▶ '+tgt.media_file+' @ '+fmt(tgt.start_sec)+' — '+(tgt.text||''); }
+    return;
+  }
+  const candidates = matchingBlocks(file,t);
+  if(!candidates.length) return;
+  const preferred = candidates.find(b=>b.segment_id===activeSegmentId) || candidates.find(b=>b.section_kind==='summary_note') || candidates[0];
+  const segId = preferred.segment_id;
+  showSegment(segId, false);
+  const active = candidates.filter(b=>b.segment_id===segId);
+  qa('[data-sync-block]').forEach(el=>el.classList.remove('is-active'));
+  for(const block of active){
+    const el = q('[data-sync-block="'+CSS.escape(block.block_id)+'"]');
+    if(el) el.classList.add('is-active');
+  }
+  const target = active.find(b=>b.section_kind==='summary_note') || active[0];
+  q('#now').textContent = '▶ '+target.media_file+' @ '+fmt(target.start_sec)+' — '+(target.text||'');
+  setAutoScroll(autoScroll);
+  if(doScroll && effectiveAutoScroll()){
+    for(const paneSel of ['#summary-pane','#replay-pane']){
+      const block = active.find(item => {
+        const pane = q(paneSel);
+        return pane && q('[data-sync-block="'+CSS.escape(item.block_id)+'"]', pane);
+      });
+      if(block) scrollBlockInsidePane(block, paneSel);
+    }
+  }
+}
+for(const paneSel of ['#summary-pane','#replay-pane']){
+  const pane = q(paneSel);
+  if(pane){
+    pane.addEventListener('wheel', () => { if(!programmaticScroll) suspendAutoFollowBriefly(); }, {passive:true});
+    pane.addEventListener('touchstart', () => { if(!programmaticScroll) suspendAutoFollowBriefly(); }, {passive:true});
+  }
+}
+
+/* ---- 6. drawer (burger) ---- */
+function setDrawer(open){
+  document.body.classList.toggle('drawer-closed', !open);
+  const button = q('#drawer-toggle');
+  if(button) button.classList.toggle('active', open);
+}
+
+/* ---- 7. floating video window ---- */
+const FKEY='l2n_float';
+function loadFloatState(){ try{return JSON.parse(localStorage.getItem(FKEY))||{};}catch(e){return {};} }
+function saveFloatState(s){ try{localStorage.setItem(FKEY, JSON.stringify(s));}catch(e){} }
+function clampFloat(){
+  const vp=q('#video-pane');
+  if(!document.body.classList.contains('video-floating')) return;
+  const r=vp.getBoundingClientRect();
+  let left=parseFloat(vp.style.left), top=parseFloat(vp.style.top);
+  if(!isNaN(left)){ left=Math.min(Math.max(0,left), Math.max(0,window.innerWidth-r.width)); vp.style.left=left+'px'; }
+  if(!isNaN(top)){ top=Math.min(Math.max(0,top), Math.max(0,window.innerHeight-r.height)); vp.style.top=top+'px'; }
+}
+function setVideoFloating(on, persist){
+  document.body.classList.toggle('video-floating', on);
+  const ft=q('#video-float-toggle'); if(ft) ft.textContent = on ? '固定' : '浮動';  // single label = the action (B)
+  if(!on){ document.body.classList.remove('video-min'); const mb=q('#video-min-toggle'); if(mb) mb.textContent='－'; }
+  const vp=q('#video-pane');
+  if(on){
+    const fs=loadFloatState();
+    if(fs.w) document.body.style.setProperty('--float-w', fs.w+'px');
+    if(fs.h) document.body.style.setProperty('--float-h', fs.h+'px');
+    if(fs.x!=null && fs.y!=null){ vp.style.left=fs.x+'px'; vp.style.top=fs.y+'px'; vp.style.right='auto'; vp.style.bottom='auto'; }
+    else { vp.style.left=vp.style.top=vp.style.right=vp.style.bottom=''; }
+    clampFloat();
+  }else{
+    vp.style.left=vp.style.top=vp.style.right=vp.style.bottom='';
+  }
+  if(persist){ const fs=loadFloatState(); fs.on=on; saveFloatState(fs); }
+}
+function installFloat(){
+  const vp=q('#video-pane'), handle=q('#drag-handle');
+  if(handle){
+    handle.addEventListener('pointerdown', e=>{
+      if(!document.body.classList.contains('video-floating')) return;
+      e.preventDefault(); try{handle.setPointerCapture(e.pointerId);}catch(_){}
+      const r=vp.getBoundingClientRect(); const ox=e.clientX-r.left, oy=e.clientY-r.top;
+      const move=m=>{ let x=m.clientX-ox, y=m.clientY-oy;
+        x=Math.min(Math.max(0,x), Math.max(0,window.innerWidth-r.width));
+        y=Math.min(Math.max(0,y), Math.max(0,window.innerHeight-r.height));
+        vp.style.left=x+'px'; vp.style.top=y+'px'; vp.style.right='auto'; vp.style.bottom='auto'; };
+      const up=()=>{ cleanup(); const fs=loadFloatState(); fs.x=parseFloat(vp.style.left)||0; fs.y=parseFloat(vp.style.top)||0; saveFloatState(fs); };
+      const cleanup=()=>{ try{handle.releasePointerCapture(e.pointerId);}catch(_){}
+        handle.removeEventListener('pointermove',move); handle.removeEventListener('pointerup',up); handle.removeEventListener('pointercancel',up); };
+      handle.addEventListener('pointermove',move); handle.addEventListener('pointerup',up); handle.addEventListener('pointercancel',up);
+    });
+  }
+  // four corners: each resizes from its own corner (W/N edges also move left/top) (#1)
+  qa('.rz').forEach(rz=>{
+    rz.addEventListener('pointerdown', e=>{
+      if(!document.body.classList.contains('video-floating')) return;
+      e.preventDefault(); e.stopPropagation(); try{rz.setPointerCapture(e.pointerId);}catch(_){}
+      const c=rz.dataset.corner||'se'; const r=vp.getBoundingClientRect();
+      const x0=e.clientX, y0=e.clientY, w0=r.width, h0=r.height, l0=r.left, t0=r.top;
+      vp.style.left=l0+'px'; vp.style.top=t0+'px'; vp.style.right='auto'; vp.style.bottom='auto';
+      const move=m=>{ let dx=m.clientX-x0, dy=m.clientY-y0, w=w0, h=h0, l=l0, t=t0;
+        if(c.includes('e')) w=w0+dx;
+        if(c.includes('s')) h=h0+dy;
+        if(c.includes('w')){ w=w0-dx; l=l0+dx; }
+        if(c.includes('n')){ h=h0-dy; t=t0+dy; }
+        if(w<220){ if(c.includes('w')) l=l0+(w0-220); w=220; }
+        if(h<150){ if(c.includes('n')) t=t0+(h0-150); h=150; }
+        l=Math.min(Math.max(0,l), Math.max(0,window.innerWidth-w));
+        t=Math.min(Math.max(0,t), Math.max(0,window.innerHeight-h));
+        vp.style.left=l+'px'; vp.style.top=t+'px';
+        document.body.style.setProperty('--float-w', w+'px'); document.body.style.setProperty('--float-h', h+'px'); };
+      const up=()=>{ cleanup(); const fs=loadFloatState();
+        fs.w=parseFloat(getComputedStyle(document.body).getPropertyValue('--float-w'))||380;
+        fs.h=parseFloat(getComputedStyle(document.body).getPropertyValue('--float-h'))||290;
+        fs.x=parseFloat(vp.style.left)||0; fs.y=parseFloat(vp.style.top)||0; saveFloatState(fs); };
+      const cleanup=()=>{ try{rz.releasePointerCapture(e.pointerId);}catch(_){}
+        rz.removeEventListener('pointermove',move); rz.removeEventListener('pointerup',up); rz.removeEventListener('pointercancel',up); };
+      rz.addEventListener('pointermove',move); rz.addEventListener('pointerup',up); rz.addEventListener('pointercancel',up);
+    });
+  });
+}
+
+/* ---- 8. responsive tier defaults ---- */
+const mqlNarrow = window.matchMedia('(max-width:720px)');
+const mqlMid = window.matchMedia('(max-width:1180px)');
+function currentTier(){ return mqlNarrow.matches ? 'narrow' : (mqlMid.matches ? 'mid' : 'wide'); }
+let lastTier = null;
+function applyTier(tier){
+  if(tier==='narrow'){ setDrawer(false); setVideoFloating(true,false); }
+  else if(tier==='mid'){ setDrawer(true); setVideoFloating(true,false); }
+  else { setDrawer(true); const fs=loadFloatState(); setVideoFloating(!!fs.on,false); }   // wide: honor saved pref
+}
+function onTierChange(){ const t=currentTier(); if(t!==lastTier){ lastTier=t; applyTier(t); } clampFloat(); }
+mqlNarrow.addEventListener('change', onTierChange);
+mqlMid.addEventListener('change', onTierChange);
+window.addEventListener('resize', clampFloat);
+
+/* ---- 9. pane resizers ---- */
+function installResizers(){
+  const app = q('.app-v3');
+  const split = q('.split-notes');
+  const col = q('#col-resizer');
+  const row = q('#split-resizer');
+  if(col){
+    col.addEventListener('pointerdown', event => {
+      event.preventDefault();
+      try{col.setPointerCapture(event.pointerId);}catch(e){}
+      col.classList.add('dragging');
+      const onMove = move => {
+        const rect = app.getBoundingClientRect();
+        const width = Math.min(Math.max(move.clientX - rect.left, 360), Math.max(420, rect.width - 720));
+        app.style.setProperty('--video-col', width + 'px');
+      };
+      const onUp = up => {
+        try{col.releasePointerCapture(up.pointerId);}catch(e){}
+        col.classList.remove('dragging');
+        col.removeEventListener('pointermove', onMove);
+        col.removeEventListener('pointerup', onUp);
+      };
+      col.addEventListener('pointermove', onMove);
+      col.addEventListener('pointerup', onUp);
+    });
+  }
+  if(row){
+    row.addEventListener('pointerdown', event => {
+      event.preventDefault();
+      try{row.setPointerCapture(event.pointerId);}catch(e){}
+      row.classList.add('dragging');
+      const onMove = move => {
+        const rect = split.getBoundingClientRect();
+        const top = Math.min(Math.max(move.clientY - rect.top, 120), Math.max(160, rect.height - 160));
+        split.style.setProperty('--summary-row', top + 'px');
+      };
+      const onUp = up => {
+        try{row.releasePointerCapture(up.pointerId);}catch(e){}
+        row.classList.remove('dragging');
+        row.removeEventListener('pointermove', onMove);
+        row.removeEventListener('pointerup', onUp);
+      };
+      row.addEventListener('pointermove', onMove);
+      row.addEventListener('pointerup', onUp);
+    });
+  }
+}
+
+/* ---- 9b. font scale (老花 zoom: header A− / A＋, scales rem-based UI, persisted) ---- */
+const ZKEY='l2n_fontscale';
+let fontScale=1; try{const _z=parseFloat(localStorage.getItem(ZKEY)); if(_z) fontScale=_z;}catch(e){}
+function applyFontScale(s){
+  fontScale=Math.min(1.7, Math.max(0.85, Math.round(s*100)/100));
+  document.documentElement.style.fontSize=(16*fontScale)+'px';
+  try{localStorage.setItem(ZKEY, String(fontScale));}catch(e){}
+}
+
+/* ---- 9c. in-viewer full-text search (dependency-free) ----
+   Filters ALL note_blocks (summary + transcript, every segment) PLUS the slide
+   layer (slide_blocks: OCR text + VLM summary per canonical slide — terms that
+   appear only ON a slide, never spoken) by AND-of-terms, renders a results
+   dropdown, and jumps on click. Note hits jump to the bullet; slide hits jump
+   the player to the slide's display window (the slide is on screen in the video
+   itself — no copied image needed). */
+const slideBlocks = TIMELINE.slide_blocks || [];
+const searchIndex = blocks.map(b => ({b, hay: (b.text || '').toLowerCase()}))
+  .concat(slideBlocks.map((s, i) => ({slide: s, slideIdx: i, hay: (s.text || '').toLowerCase()})));
+function escHtml(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function snippet(text, terms){
+  const t = text || '';
+  let idx = -1;
+  for(const term of terms){ const p = t.toLowerCase().indexOf(term); if(p>=0 && (idx<0 || p<idx)) idx=p; }
+  let start = Math.max(0, idx - 24);
+  let frag = t.slice(start, start + 90);
+  let html = escHtml((start>0?'…':'') + frag + (start+90 < t.length ? '…' : ''));
+  for(const term of terms){
+    if(!term) continue;
+    const re = new RegExp('(' + term.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + ')', 'ig');
+    html = html.replace(re, '<mark>$1</mark>');
+  }
+  return html;
+}
+function runSearch(qstr){
+  const panel = q('#search-results'); if(!panel) return;
+  const terms = (qstr||'').trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if(!terms.length){ panel.innerHTML=''; panel.classList.remove('open'); return; }
+  const hits = [];
+  for(const item of searchIndex){
+    if(terms.every(t=>item.hay.includes(t))){ hits.push(item); if(hits.length>=80) break; }
+  }
+  if(!hits.length){ panel.innerHTML='<div class="sr-empty">無符合結果</div>'; panel.classList.add('open'); return; }
+  const rows = hits.map(item=>{
+    if(item.slide){
+      const s = item.slide;
+      return '<button class="sr-item" type="button" data-slide="'+item.slideIdx+'">'
+        + '<span class="sr-seg">投影片</span>'
+        + '<span class="sr-text">'+snippet(s.text, terms)+'</span>'
+        + '<span class="sr-ts">'+fmt(s.start_sec)+'</span></button>';
+    }
+    const b = item.b;
+    const seg = segmentById(b.segment_id);
+    const segNo = seg ? seg.segment_number : '';
+    const kind = b.section_kind==='summary_note' ? '總' : '逐';
+    return '<button class="sr-item" type="button" data-block="'+escHtml(String(b.block_id))+'">'
+      + '<span class="sr-seg">'+escHtml(segNo)+' · '+kind+'</span>'
+      + '<span class="sr-text">'+snippet(b.text, terms)+'</span>'
+      + '<span class="sr-ts">'+fmt(b.start_sec)+'</span></button>';
+  });
+  panel.innerHTML = '<div class="sr-count">'+hits.length+(hits.length>=80?'+':'')+' 筆</div>' + rows.join('');
+  panel.classList.add('open');
+}
+function closeSearch(){ const p=q('#search-results'); if(p) p.classList.remove('open'); }
+function jumpToBlock(blockId){
+  const b = blocks.find(x=>String(x.block_id)===String(blockId)); if(!b) return;
+  closeSearch();
+  // make sure the pane holding this block is visible
+  if(b.section_kind==='summary_note' && document.body.classList.contains('mode-replay')) setMode('split');
+  if(b.section_kind==='transcript_index' && document.body.classList.contains('mode-summary')) setMode('split');
+  showSegment(b.segment_id, false);
+  setVideo(b.media_file, Number(b.start_sec)||0, false);
+  activateForTime(b.media_file, Number(b.start_sec)||0, true, true);
+  window.setTimeout(()=>{
+    for(const paneSel of ['#summary-pane','#replay-pane']){
+      const pane=q(paneSel);
+      if(pane && q('[data-sync-block="'+CSS.escape(b.block_id)+'"]', pane)) scrollBlockInsidePane(b, paneSel);
+    }
+  }, 60);
+}
+/* Cue player to (file, t) and land on the owning segment's notes. Shared by slide
+   search hits and ?f=&t= deep links. When no note block covers that instant
+   (slide shown during an untimestamped stretch), just cue the video. */
+function seekTo(file, t, autoplay){
+  const cands = matchingBlocks(file, t);
+  if(cands.length){
+    const b = cands.find(x=>x.section_kind==='summary_note') || cands[0];
+    showSegment(b.segment_id, false);
+  }else{
+    const seg = segments.find(s=>segFiles(s).includes(file));
+    if(seg) showSegment(seg.segment_id, false);
+  }
+  setVideo(file, t, autoplay);
+  activateForTime(file, t, true, true);
+}
+function jumpToSlide(i){
+  const s = slideBlocks[i]; if(!s) return;
+  closeSearch();
+  seekTo(s.media_file, Number(s.start_sec)||0, false);
+}
+/* ---- 9d. deep links (?f=<media file>&t=<sec>) + copy-link button ----
+   Works on file:// too (query survives). No autoplay: browsers block
+   sound-on autoplay, and a shared link should land quietly on the spot. */
+function applyDeepLink(){
+  let params;
+  try{ params = new URLSearchParams(location.search); }catch(e){ return false; }
+  const t = parseFloat(params.get('t'));
+  if(isNaN(t) || t < 0) return false;
+  let file = params.get('f') || '';
+  const known = new Set((TIMELINE.media_parts||[]).map(p=>p.file));
+  if(file && !known.has(file)){
+    // tolerate an encoded/renamed link: match by basename before giving up
+    const hit = [...known].find(k=>k.toLowerCase()===file.toLowerCase());
+    if(hit) file = hit; else file = '';
+  }
+  if(!file) file = segments[0] ? segments[0].media_file : '';
+  if(!file) return false;
+  seekTo(file, t, false);
+  return true;
+}
+function copyCurrentLink(btn){
+  const v = q('#player');
+  const file = v.dataset.file || (segments[0] && segments[0].media_file) || '';
+  if(!file) return;
+  const t = Math.floor(v.currentTime || 0);
+  const base = location.href.split('#')[0].split('?')[0];
+  const url = base + '?f=' + encodeURIComponent(file) + '&t=' + t;
+  const done = ()=>{ if(btn){ const old=btn.textContent; btn.textContent='✓'; window.setTimeout(()=>{btn.textContent=old;}, 1200); } };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(url).then(done, ()=>window.prompt('複製這個連結：', url));
+  }else{
+    window.prompt('複製這個連結：', url);
+  }
+}
+
+/* ---- 10. event bindings + init ---- */
+document.addEventListener('click', e=>{
+  const fdec=e.target.closest('#font-dec'); if(fdec){e.preventDefault(); applyFontScale(fontScale-0.1); return;}
+  const finc=e.target.closest('#font-inc'); if(finc){e.preventDefault(); applyFontScale(fontScale+0.1); return;}
+  const ts=e.target.closest('a.ts');
+  if(ts){e.preventDefault(); const t=Number(ts.dataset.t||0); setVideo(ts.dataset.file,t); activateForTime(ts.dataset.file,t,true,true); return;}
+  const card=e.target.closest('.segment-card, .home-card');
+  if(card){e.preventDefault(); const t=Number(card.dataset.t||0); showSegment(card.dataset.segmentId,true); setVideo(card.dataset.file,t,false); activateForTime(card.dataset.file,t,false,true); return;}
+  const goHome=e.target.closest('[data-go-home]');
+  if(goHome){e.preventDefault(); showHome(); return;}
+  const fl=e.target.closest('[data-toggle-float]');
+  if(fl){e.preventDefault(); setVideoFloating(!document.body.classList.contains('video-floating'), true); return;}
+  const mn=e.target.closest('[data-toggle-min]');
+  if(mn){e.preventDefault(); const on=document.body.classList.toggle('video-min'); mn.textContent=on?'＋':'－'; clampFloat(); return;}
+  const mode=e.target.closest('[data-mode]');
+  if(mode){e.preventDefault(); setMode(mode.dataset.mode); return;}
+  const toggle=e.target.closest('[data-toggle-drawer]');
+  if(toggle){e.preventDefault(); setDrawer(document.body.classList.contains('drawer-closed')); return;}
+  const sr=e.target.closest('.sr-item');
+  if(sr){e.preventDefault();
+    if(sr.dataset.slide!==undefined){ jumpToSlide(Number(sr.dataset.slide)); }
+    else jumpToBlock(sr.dataset.block);
+    return;}
+  const cl=e.target.closest('#copy-link');
+  if(cl){e.preventDefault(); copyCurrentLink(cl); return;}
+  // click outside the search box closes the results dropdown
+  if(!e.target.closest('.ph-search')) closeSearch();
+});
+(function bindSearch(){
+  const inp=q('#search-input'); if(!inp) return;
+  let timer=null;
+  inp.addEventListener('input', ()=>{ window.clearTimeout(timer); timer=window.setTimeout(()=>runSearch(inp.value), 120); });
+  inp.addEventListener('keydown', e=>{
+    if(e.key==='Escape'){ inp.value=''; closeSearch(); inp.blur(); }
+    else if(e.key==='Enter'){ const first=q('#search-results .sr-item'); if(first){ e.preventDefault(); jumpToBlock(first.dataset.block); } }
+  });
+  inp.addEventListener('focus', ()=>{ if(inp.value.trim()) runSearch(inp.value); });
+})();
+document.addEventListener('keydown', e=>{
+  if(e.key==='/' && !/^(INPUT|TEXTAREA|SELECT)$/.test((e.target.tagName||''))){
+    const inp=q('#search-input'); if(inp){ e.preventDefault(); inp.focus(); }
+  }
+});
+q('#player').addEventListener('timeupdate', e=>{const v=e.currentTarget; if(v.dataset.file && !v.paused) activateForTime(v.dataset.file, v.currentTime, true);});
+q('#player').addEventListener('play',()=>setAutoScroll(autoScroll));
+q('#player').addEventListener('pause',()=>setAutoScroll(autoScroll));
+q('#player').addEventListener('ended', playNextClip);
+q('#toggle-scroll').addEventListener('click',()=>setAutoScroll(!autoScroll));
+
+setMode('split');
+applyFontScale(fontScale);
+installResizers();
+installFloat();
+setAutoScroll(true);
+lastTier = currentTier();
+applyTier(lastTier);
+// #14: a single-segment lecture has nothing to overview → skip the home page, go straight in
+const singleSeg = segments.length <= 1;
+if(singleSeg){ document.body.classList.add('no-home'); if(segments[0]) showSegment(segments[0].segment_id, true); }
+else showHome();
+// a ?f=&t= deep link wins over the default first-segment cue
+if(!applyDeepLink() && segments[0]){ const s0=segments[0]; setVideo(s0.media_file, Number(s0.start_sec||0), false); }
+</script>
+</body>
+</html>
